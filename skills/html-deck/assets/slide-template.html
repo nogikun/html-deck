@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <!-- <title> はビューアの一覧とスクリーンリーダーに出る。主張を言い切る一文にする -->
+  <title>__CLAIM__</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; script-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'">
+  <link rel="stylesheet" href="../theme.css">
+  <style>
+    /* このスライド固有のレイアウトだけをここに書く。
+       色・書体・文字サイズは var() で theme.css から取る。
+       :root を再定義しない。共有トークンを壊すと他の全枚に波及する。 */
+  </style>
+</head>
+<body>
+  <article class="slide">
+    <header class="slide-header">
+      <div class="eyebrow">__SECTION__</div>
+      <div class="folio">__NN__</div>
+    </header>
+
+    <main class="content">
+      <!-- 1枚 = 1主張。見出しだけ読んで結論が分かる状態にする -->
+      <h2>__CLAIM__</h2>
+    </main>
+
+    <footer class="slide-footer">
+      <div class="source">__SOURCE__</div>
+    </footer>
+  </article>
+</body>
+</html>

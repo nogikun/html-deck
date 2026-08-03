@@ -1,2 +1,6 @@
 .direnv/
 .DS_Store
+
+docs
+
+!docs/HTMLスライド生成アーキテクチャ調査.md

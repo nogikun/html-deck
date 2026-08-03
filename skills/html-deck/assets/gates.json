@@ -1,0 +1,29 @@
+{
+  "canvas": { "width": 1600, "height": 900 },
+  "safe_inset_px": 48,
+
+  "body_text_chars": 25,
+  "font_px_block": 14,
+  "body_font_px_min": 22,
+  "body_font_px_block": 18,
+  "label_font_px_min": 18,
+  "large_text_px": 32,
+  "large_text_bold_px": 24,
+
+  "contrast_min": 4.5,
+  "contrast_min_large": 3.0,
+
+  "max_ja_chars": 420,
+  "max_en_words": 130,
+  "max_distinct_font_sizes": 7,
+  "min_hierarchy_ratio": 2.2,
+  "text_area_ratio_min": 0.05,
+  "text_area_ratio_max": 0.30,
+  "max_line_chars_ja": 46,
+  "max_line_chars_en": 82,
+
+  "_area_note": "占有率は要素の箱ではなく、文字の行矩形の合計で測る。箱で測ると全幅の見出しやパディングの大きい枠が丸ごと計上され、実際には空いている紙面が『詰まっている』と出る。0.05〜0.30 の範囲は1デッキ(実測15〜20%)からの暫定値で、複数デッキで測り直す余地がある。",
+
+  "_font_note": "25文字以上の要素を『本文』、それ未満を『ラベル』として別の下限を当てる。読ませる文と目印では必要な大きさが違い、同じ下限を当てると装飾ラベルの修正でループの枠が埋まる。",
+  "_threshold_note": "しきい値は反復開始前に固定する。案件都合で変える場合は deck.md の constraints に理由を書き、ラウンド0で1度だけ変更する。ラウンド途中で緩めるのは評価ハックにあたり、その回の結果は無効。"
+}

@@ -1,0 +1,136 @@
+/* =============================================================================
+   theme.css — デッキ全体で共有する唯一の契約
+   =============================================================================
+   キャンバスは 1600x900 固定。ビューアが全体を等倍縮小するだけなので、
+   clamp() や cqh でレスポンシブにする必要はない。px で書き切ると、
+   実測値と指定値が一致して評価ループが安定する。
+
+   [1] TOKENS だけがデザインで決める場所。ここは毎回ゼロから設計する。
+   [2] CANVAS / PRINT は触らない。壊すと固定キャンバスの前提が崩れる。
+   [3] 各スライドは自分の <style> でレイアウトを自由に組んでよい。
+       ただし色・書体・文字サイズ段階は必ず var() 経由で参照する。
+       スライド側で :root のトークンを再定義しないこと。1枚の都合で
+       全枚の色が変わるか、逆にその1枚だけ声が違って見える。
+   ========================================================================== */
+
+/* --------------------------------------------------------------- [1] TOKENS */
+:root {
+  /* 色 — 4〜6色。役割で命名し、見た目で命名しない (× --blue, ○ --accent) */
+  --bg:        #ffffff;
+  --surface:   #f4f6f9;
+  --ink:       #14181f;   /* 本文。--bg に対して 4.5:1 以上を必ず確保する */
+  --muted:     #5a6474;   /* 補足。--bg に対して 4.5:1 以上 */
+  --line:      #d3d9e2;
+  --accent:    #2b57d6;   /* 主張の1色。使いすぎると強調が消える */
+  --accent-2:  #0f8b7e;   /* 対比・第2系列が要るときだけ */
+
+  /* 書体 — 外部フォントは読み込めない (CSP / オフライン配布)。
+     ローカルにある face だけで組むか、woff2 を deck/fonts/ に置いて
+     @font-face で相対参照する。 */
+  --display: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", system-ui, sans-serif;
+  --body:    "Hiragino Sans", "Yu Gothic", "Noto Sans JP", system-ui, sans-serif;
+  --mono:    "SFMono-Regular", "Menlo", "Roboto Mono", monospace;
+
+  /* 文字サイズ段階 — 1600x900 での実寸。18px が絶対下限、本文は 22px 以上。
+     段階は 7 種類までに抑える。増やすほど階層が読めなくなる。 */
+  --fs-display: 96px;
+  --fs-h1:      72px;
+  --fs-h2:      54px;
+  --fs-h3:      36px;
+  --fs-lead:    30px;
+  --fs-body:    24px;
+  --fs-caption: 18px;
+
+  /* 余白とグリッド */
+  --pad-x:   80px;
+  --pad-top: 56px;
+  --pad-bot: 48px;
+  --gap:     32px;
+  --radius:  0px;
+}
+
+/* --------------------------------------------------------------- [2] CANVAS */
+* { box-sizing: border-box; }
+
+html, body {
+  width: 1600px;
+  height: 900px;
+  margin: 0;
+  overflow: hidden;              /* はみ出しは検査で落とす。隠して誤魔化さない */
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: var(--fs-body);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.slide {
+  position: relative;
+  width: 1600px;
+  height: 900px;
+  padding: var(--pad-top) var(--pad-x) var(--pad-bot);
+  display: grid;
+  grid-template-rows: auto 1fr auto;   /* header / content / footer */
+  gap: var(--gap);
+}
+
+.content { min-height: 0; }            /* grid の中で子がはみ出さないための要 */
+
+h1, h2, h3, p, ul, ol { margin: 0; }
+ul, ol { padding-left: 1.2em; }
+
+h1, h2, h3 {
+  font-family: var(--display);
+  line-height: 1.12;
+  letter-spacing: -.02em;
+  /* 日本語の見出しは文節で折る。これがないと「ではな/く」のように
+     語の途中で改行され、読み直しが発生する。Chrome 119+ が解釈し、
+     未対応環境では単に無視される (壊れない) */
+  word-break: auto-phrase;
+  /* 最終行だけ極端に短くなるのを防ぐ */
+  text-wrap: balance;
+}
+h1 { font-size: var(--fs-h1); font-weight: 780; }
+h2 { font-size: var(--fs-h2); font-weight: 760; }
+h3 { font-size: var(--fs-h3); font-weight: 700; line-height: 1.24; }
+
+.lead    { font-size: var(--fs-lead); line-height: 1.5; }
+.body    { font-size: var(--fs-body); line-height: 1.6; }
+.caption { font-size: var(--fs-caption); line-height: 1.45; color: var(--muted); }
+
+.eyebrow, .folio {
+  font-family: var(--mono);
+  font-size: var(--fs-caption);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.slide-header { display: flex; align-items: center; justify-content: space-between; }
+.slide-footer {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 24px;
+  font-size: var(--fs-caption); color: var(--muted);
+}
+.source { max-width: 78%; }            /* 出典は主張と1対1で対応させる */
+
+.accent { color: var(--accent); }
+.rule   { height: 1px; background: var(--line); border: 0; }
+
+/* 入場アニメは任意。付けるなら reduced-motion で必ず消えるようにする。
+   検査は reduced-motion で撮るので、アニメ途中が採点されることはない。 */
+@media (prefers-reduced-motion: no-preference) {
+  .content > * { animation: rise .5s cubic-bezier(.22,.75,.2,1) both; }
+  .content > *:nth-child(2) { animation-delay: .06s; }
+  .content > *:nth-child(3) { animation-delay: .12s; }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+}
+
+/* ---------------------------------------------------------------- [3] PRINT */
+@media print {
+  /* px で指定して画面と同じ座標系のまま出力する。in に直すと 1600px≠16in で
+     右端が切れる (96dpi 換算で 16in = 1536px)。 */
+  @page { size: 1600px 900px; margin: 0; }
+  html, body, .slide { width: 1600px; height: 900px; }
+  .content > * { animation: none !important; }
+}

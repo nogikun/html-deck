@@ -79,9 +79,24 @@ EXTRACT_JS = r"""
     rect.width > 0 && rect.height > 0
   );
 
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
+  // SVG の中身は viewBox で拡大縮小される。CSSの font-size をそのまま読むと、
+  // 実際に画面に出ている大きさと一致しない (viewBox を 3倍に伸ばせば 12 は 36px)。
+  // 図の中の文字が読めるかを測るには、実効倍率を掛けた値を見る必要がある。
+  const userScale = (el) => {
+    if (el.namespaceURI !== SVG_NS || typeof el.getScreenCTM !== 'function') return 1;
+    const m = el.getScreenCTM();
+    if (!m) return 1;
+    const det = Math.abs(m.a * m.d - m.b * m.c);
+    return det > 0 ? Math.sqrt(det) : 1;
+  };
+
   const els = [];
   const colorUse = [];
   const families = new Set();
+  const textRuns = [];   // 文字の実行矩形。占有率と重なり判定に使う
+  const figures = [];
   let textArea = 0;
   let allText = '';
 
@@ -119,7 +134,8 @@ EXTRACT_JS = r"""
     };
 
     if (ownText) {
-      const fs = parseFloat(cs.fontSize);
+      const scale = userScale(el);
+      const fs = parseFloat(cs.fontSize) * scale;   // 画面上の実効サイズ
       const fw = parseInt(cs.fontWeight, 10) || 400;
       const fg = parseColor(cs.color) || { r: 0, g: 0, b: 0, a: 1 };
       const bg = effectiveBg(el);
@@ -129,9 +145,14 @@ EXTRACT_JS = r"""
       // 役割で宣言された細字はラベル段階として扱い、下限を分ける。
       // 本文をこれで包んで検査を逃げると、批評担当が絵を見て落とす。
       const finePrint = !!el.closest('.slide-footer, .source, .caption, .footnote, figcaption, [data-fineprint]');
-      rec.text = { chars: ownText.length, snippet: ownText.slice(0, 60), lines, finePrint };
+      // figcaption は「図の中の文字」ではなく図に付ける注記なので、細字側で扱う。
+      // ここを分けないと、正しく書かれたキャプションが図中文字の下限に引っかかる。
+      const inFigure = !finePrint && (el.namespaceURI === SVG_NS || !!el.closest('figure, svg'));
+      rec.text = { chars: ownText.length, snippet: ownText.slice(0, 60), lines, finePrint, inFigure };
       rec.font = {
         size: +fs.toFixed(1),
+        declared: +parseFloat(cs.fontSize).toFixed(1),
+        scale: +scale.toFixed(3),
         weight: fw,
         family: (cs.fontFamily || '').split(',')[0].replace(/["']/g, '').trim(),
         lineHeight: +lh.toFixed(1),
@@ -146,7 +167,15 @@ EXTRACT_JS = r"""
         if (n.nodeType !== 3 || !n.textContent.trim()) return;
         const range = document.createRange();
         range.selectNodeContents(n);
-        for (const rc of range.getClientRects()) textArea += rc.width * rc.height;
+        for (const rc of range.getClientRects()) {
+          if (rc.width < 1 || rc.height < 1) continue;
+          textArea += rc.width * rc.height;
+          textRuns.push({
+            sel: rec.sel, inFigure,
+            x: rc.x, y: rc.y, w: rc.width, h: rc.height,
+            snippet: n.textContent.trim().slice(0, 24),
+          });
+        }
       });
       allText += ownText + ' ';
       // 1行あたりの文字数 (概算): 総文字数 / 行数
@@ -160,7 +189,99 @@ EXTRACT_JS = r"""
     // background-color は rgba の重ねやグラデーションで合成値になりやすく、
     // トークン照合の偽陽性が多い。パレット検査は text と border に絞る。
 
+    // SVG の塗りと線は fill/stroke に出る。ここを見ないと、図だけが
+    // 共有トークンの外で好きな色を使えてしまい、デッキの声が割れる。
+    if (el.namespaceURI === SVG_NS) {
+      [['fill', cs.fill], ['stroke', cs.stroke]].forEach(([role, raw]) => {
+        if (!raw || raw === 'none') return;
+        const c = parseColor(raw);
+        if (!c || c.a <= 0.02) return;
+        colorUse.push({
+          sel: rec.sel, role: 'svg-' + role,
+          rgb: [Math.round(c.r), Math.round(c.g), Math.round(c.b)], a: c.a,
+        });
+      });
+    }
+
     els.push(rec);
+  });
+
+  // ---- 文字同士の重なり
+  // LLMがSVGを書くとき最も多い失敗がラベルの重なりと矢印のずれ。通常のHTML組版では
+  // 実行矩形は重ならないので、重なりが出たら座標指定側 (SVG・絶対配置) の事故と見てよい。
+  const overlaps = [];
+  for (let i = 0; i < textRuns.length; i += 1) {
+    for (let j = i + 1; j < textRuns.length; j += 1) {
+      const a = textRuns[i], b = textRuns[j];
+      const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+      const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+      if (ox <= 2 || oy <= 2) continue;
+      const share = (ox * oy) / Math.min(a.w * a.h, b.w * b.h);
+      if (share < 0.28) continue;
+      overlaps.push({
+        a: a.snippet, b: b.snippet, sel: a.sel, sel2: b.sel,
+        share: +share.toFixed(2), inFigure: a.inFigure || b.inFigure,
+      });
+      if (overlaps.length >= 12) break;
+    }
+    if (overlaps.length >= 12) break;
+  }
+
+  // ---- 図 (インラインSVG / ラスタ画像)
+  document.querySelectorAll('svg').forEach((svg) => {
+    if (svg.closest('svg') !== svg) return;              // 入れ子のSVGは親だけ見る
+    const r = svg.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4) return;
+    let escaped = 0;
+    let minStroke = Infinity;
+    let minInset = Infinity;
+    // 枠外・内側余白の判定は「実際に何かを描く要素」だけで行う。
+    // <g> <switch> <foreignObject> は子を包む箱で、それ自体は何も塗らない。
+    // draw.io は width="100%" の容器を出すので、これを数えると
+    // viewBox をずらした分がそのまま「はみ出し」として誤検出される。
+    const DRAWN = new Set(['rect', 'circle', 'ellipse', 'path', 'line', 'polygon',
+                           'polyline', 'text', 'tspan', 'image', 'use', 'DIV', 'SPAN']);
+    svg.querySelectorAll('*').forEach((c) => {
+      const cr = c.getBoundingClientRect();
+      if (cr.width > 0 && cr.height > 0 && DRAWN.has(c.tagName)) {
+        if (cr.right > r.right + 1 || cr.bottom > r.bottom + 1 ||
+            cr.left < r.left - 1 || cr.top < r.top - 1) escaped += 1;
+        else {
+          minInset = Math.min(minInset,
+            cr.left - r.left, cr.top - r.top, r.right - cr.right, r.bottom - cr.bottom);
+        }
+      }
+      const cs2 = getComputedStyle(c);
+      if (cs2.stroke && cs2.stroke !== 'none') {
+        const sw = parseFloat(cs2.strokeWidth || '1') * userScale(c);
+        if (sw > 0 && sw < minStroke) minStroke = sw;
+      }
+    });
+    figures.push({
+      kind: 'svg',
+      sel: shortSel(svg),
+      w: +r.width.toFixed(1), h: +r.height.toFixed(1),
+      named: !!(svg.querySelector(':scope > title') || svg.getAttribute('aria-label')),
+      hidden: svg.getAttribute('aria-hidden') === 'true',
+      viewBox: svg.getAttribute('viewBox') || '',
+      escaped,
+      minStroke: minStroke === Infinity ? null : +minStroke.toFixed(2),
+      minInset: minInset === Infinity ? null : +minInset.toFixed(1),
+    });
+  });
+
+  document.querySelectorAll('img').forEach((img) => {
+    const r = img.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4) return;
+    figures.push({
+      kind: 'img',
+      sel: shortSel(img),
+      w: +r.width.toFixed(1), h: +r.height.toFixed(1),
+      naturalW: img.naturalWidth, naturalH: img.naturalHeight,
+      alt: img.getAttribute('alt'),
+      objectFit: getComputedStyle(img).objectFit,
+      src: (img.getAttribute('src') || '').slice(0, 80),
+    });
   });
 
   const bullets = document.querySelectorAll('li').length;
@@ -177,6 +298,8 @@ EXTRACT_JS = r"""
     elements: els,
     colorUse,
     families: [...families],
+    overlaps,
+    figures,
     bullets,
     textArea: Math.round(textArea),
     allText: allText.trim(),
@@ -337,6 +460,7 @@ def evaluate(data: dict, gates: dict, source: str, slide_id: str, theme_css: str
         is_body = (
             t["chars"] >= gates["body_text_chars"]
             and not t.get("finePrint")
+            and not t.get("inFigure")   # 図中の文字は別段階。地の文と同じ下限を当てない
             and el["tag"] not in ("h1", "h2", "h3", "h4", "h5", "h6")
         )
         if is_body:
@@ -346,9 +470,18 @@ def evaluate(data: dict, gates: dict, source: str, slide_id: str, theme_css: str
         # 必要な大きさが違う。同じ下限を当てると、装飾ラベルの修正で
         # ループの枠が埋まって肝心の本文に手が回らない。
         if f["size"] < gates["font_px_block"]:
+            extra = ""
+            if abs(f.get("scale", 1) - 1) > 0.01:
+                extra = (f" (指定 {f['declared']}px × viewBox倍率 {f['scale']} の実効値。"
+                         "SVG側の font-size ではなく、図の表示サイズか viewBox を見直す)")
             add("block", "font_unreadable",
                 f"{el['sel']} が {f['size']}px。縮小表示で消えるので下限 {gates['font_px_block']}px を切らない "
-                f"(「{t['snippet']}」)", selector=el["sel"])
+                f"(「{t['snippet']}」){extra}", selector=el["sel"])
+        elif t.get("inFigure") and f["size"] < gates["figure_font_px_min"]:
+            add("review", "figure_font_small",
+                f"{el['sel']} の図中の文字が {f['size']}px。図の中は本文より一段小さくてよいが "
+                f"{gates['figure_font_px_min']}px は要る (「{t['snippet']}」)。"
+                "文字を図の外に出すか、図を大きくする。", selector=el["sel"])
         elif is_body and f["size"] < gates["body_font_px_min"]:
             sev = "block" if f["size"] < gates["body_font_px_block"] else "review"
             add(sev, "body_font_small",
@@ -418,10 +551,73 @@ def evaluate(data: dict, gates: dict, source: str, slide_id: str, theme_css: str
             f"{gates['min_hierarchy_ratio']}倍未満だと最初に読む場所が決まらない。")
 
     area_ratio = data["textArea"] / (W * H)
+    fig_share = sum(f["w"] * f["h"] for f in data.get("figures", [])) / (W * H)
     if area_ratio > gates["text_area_ratio_max"]:
         add("review", "overfilled", f"文字ブロックが画面の {area_ratio:.0%}。余白が足りない。")
-    elif area_ratio < gates["text_area_ratio_min"] and ja + en_words > 0:
+    elif area_ratio < gates["text_area_ratio_min"] and ja + en_words > 0 and fig_share < 0.15:
+        # 図が主役の枚は文字が少なくて当然。図の面積を見ずに薄いと言わない。
         add("info", "underfilled", f"文字ブロックが画面の {area_ratio:.0%}。1枚として情報が薄い可能性。")
+
+    # --- 文字の重なり
+    for ov in data.get("overlaps", []):
+        where = "図の中で" if ov["inFigure"] else ""
+        add("block", "text_overlap",
+            f"{where}文字が重なっている: 「{ov['a']}」と「{ov['b']}」が {ov['share']:.0%} 重複 "
+            f"({ov['sel']} / {ov['sel2']})。座標指定を直すか、ラベルを図の外へ出す。",
+            selector=ov["sel"])
+
+    # --- 図 (インラインSVG / ラスタ画像)
+    W_area = W * H
+    for fig in data.get("figures", []):
+        area_share = (fig["w"] * fig["h"]) / W_area
+        if fig["kind"] == "svg":
+            if fig["escaped"]:
+                add("block", "figure_clipped",
+                    f"{fig['sel']} の中の {fig['escaped']}要素が図の枠から出ている。"
+                    "SVGは枠外を描かないので、その分は消えている。viewBox を広げるか座標を直す。",
+                    selector=fig["sel"])
+            if not fig["viewBox"]:
+                add("review", "figure_no_viewbox",
+                    f"{fig['sel']} に viewBox がない。拡大縮小で比率が崩れる。", selector=fig["sel"])
+            if not fig["named"] and not fig["hidden"]:
+                add("review", "figure_unnamed",
+                    f"{fig['sel']} に <title> も aria-label もない。図が主張を持つなら名前を付ける "
+                    "(純粋な装飾なら aria-hidden=\"true\")。", selector=fig["sel"])
+            if fig["minInset"] is not None and fig["minInset"] < gates["figure_inset_px"]:
+                add("review", "figure_tight_margin",
+                    f"{fig['sel']} の要素が枠から {fig['minInset']:.0f}px しか離れていない。"
+                    f"{gates['figure_inset_px']}px は空けないと、縁に触れて切れて見える。",
+                    selector=fig["sel"])
+            if fig["minStroke"] is not None and fig["minStroke"] < gates["figure_min_stroke_px"]:
+                add("review", "figure_hairline",
+                    f"{fig['sel']} に実効 {fig['minStroke']}px の線がある。"
+                    f"{gates['figure_min_stroke_px']}px 未満は投影とPDFで消える。", selector=fig["sel"])
+        else:
+            if not fig["naturalW"]:
+                add("block", "image_not_loaded",
+                    f"{fig['sel']} の画像が読み込めていない ({fig['src']})。", selector=fig["sel"])
+                continue
+            need = fig["w"] * gates["image_min_scale"]
+            if fig["naturalW"] < need:
+                sev = "block" if fig["naturalW"] < fig["w"] else "review"
+                add(sev, "image_low_res",
+                    f"{fig['sel']} は {fig['naturalW']}px の画像を {fig['w']:.0f}px で表示している。"
+                    f"1600x900では表示幅の{gates['image_min_scale']}倍以上ないと粗く見える。",
+                    selector=fig["sel"])
+            if fig["objectFit"] in ("fill", "") and fig["naturalH"]:
+                want = fig["naturalW"] / fig["naturalH"]
+                got = fig["w"] / fig["h"] if fig["h"] else want
+                if want and abs(got / want - 1) > 0.02:
+                    add("review", "image_distorted",
+                        f"{fig['sel']} の縦横比が元画像と {abs(got / want - 1):.0%} ずれている。"
+                        "潰れて見えるので object-fit か寸法を直す。", selector=fig["sel"])
+            if fig["alt"] is None:
+                add("review", "image_no_alt",
+                    f"{fig['sel']} に alt がない。装飾なら alt=\"\" を明示する。", selector=fig["sel"])
+        if area_share > 0.02:
+            findings.append({"severity": "info", "code": "figure_size",
+                             "message": f"{fig['sel']} は画面の {area_share:.0%} "
+                                        f"({fig['w']:.0f}x{fig['h']:.0f})"})
 
     # --- パレット逸脱 (共有CSSが見つかったときだけ判定する)
     if theme_css.strip():

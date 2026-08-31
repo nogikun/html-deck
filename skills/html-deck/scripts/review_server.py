@@ -1,0 +1,406 @@
+#!/usr/bin/env python3
+"""デッキをローカル配信し、ブラウザ上の DOM 指定をフィードバック JSON に落とす。
+
+    python3 scripts/review_server.py <deck-dir> [--open] [--port N]
+
+なぜサーバが要るか:
+  file:// では親ページから iframe の contentDocument に到達できない (Chrome で実測、
+  sandbox 属性を外しても null)。同一オリジンの http で配信して初めて、要素の位置や
+  computedStyle を読み、ホバーとクリックを拾える。スライド側の CSP は
+  script-src 'none' のままでよい。ピッカーは全部親側で動く。
+
+出すもの:
+  <deck>/.loop/feedback/inbox.jsonl    起票の索引 (このサーバが追記)
+  <deck>/.loop/feedback/threads/*.jsonl 1指摘 = 1スレッドの会話ログ
+  <deck>/.loop/feedback/resolved.jsonl  確定の記録 (マージ / 却下 / 保留)
+
+受信するたび標準出力に1行出す。バックグラウンド起動しておけば、
+エージェントはその行で「ユーザーが指摘を出した」ことに気づける。
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import secrets
+import subprocess
+import sys
+import threading
+import webbrowser
+from datetime import datetime, timezone
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+from pathlib import Path
+from urllib.parse import urlparse, parse_qs
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import review_anchor as anchor  # noqa: E402
+import review_deck_adapter as adapter  # noqa: E402
+import review_threads as threads  # noqa: E402
+
+SKILL_DIR = Path(__file__).resolve().parent.parent
+REVIEW_HTML = SKILL_DIR / "assets" / "review.html"
+
+_lock = threading.Lock()
+
+
+# ---------------------------------------------------------------- 解決
+
+def _resolve_ref(root: Path, slide_file: str, ref: dict) -> dict:
+    """ブラウザが送ってきた1件の参照を、ソース行まで解決して返す。"""
+    src_path = (root / slide_file)
+    try:
+        src = src_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        src = ""
+
+    out = dict(ref)
+    if ref.get("kind") == "region":
+        a = ref.get("anchor") or {}
+        r = anchor.resolve(
+            src, a.get("path"),
+            tag=a.get("tag"), classes=a.get("classes"), el_id=a.get("id"),
+            text_excerpt=a.get("text_excerpt"),
+        )
+        a["file_line"] = r["line"]
+        a["anchor_confidence"] = r["confidence"]
+        out["anchor"] = a
+    else:
+        r = anchor.resolve(
+            src, ref.get("path"),
+            tag=ref.get("tag"), classes=ref.get("classes"), el_id=ref.get("id"),
+            text_excerpt=ref.get("text_excerpt"),
+        )
+        out["file_line"] = r["line"]
+        out["anchor_confidence"] = r["confidence"]
+    return out
+
+
+def _describe(ref: dict, slide_file: str) -> str:
+    """#N が何を指しているかの1行表現。instruction_expanded に埋める。"""
+    if ref.get("kind") == "region":
+        r = ref.get("rect", {})
+        a = ref.get("anchor") or {}
+        where = f"{slide_file}:{a['file_line']}" if a.get("file_line") else slide_file
+        return (f"領域 x={r.get('x')} y={r.get('y')} w={r.get('w')} h={r.get('h')} "
+                f"({where} の <{a.get('tag', '?')}> 内)")
+    where = f"{slide_file}:{ref['file_line']}" if ref.get("file_line") else slide_file
+    sel = ref.get("selector") or ref.get("tag", "?")
+    text = (ref.get("text_excerpt") or "").strip()
+    text = f"「{text[:40]}」" if text else ""
+    return f"{where} {sel} {text}".strip()
+
+
+def _expand(instruction: str, refs: list[dict], slide_file: str) -> str:
+    """#1 を実体の説明に置き換えた版。スキーマを知らない読み手でも意味が取れる。"""
+    out = instruction
+    for ref in sorted(refs, key=lambda r: -int(r["n"])):  # #10 を #1 より先に置換
+        out = out.replace(f"#{ref['n']}", f"[#{ref['n']} = {_describe(ref, slide_file)}]")
+    return out
+
+
+def _next_id(inbox: Path) -> str:
+    n = 0
+    if inbox.is_file():
+        n = sum(1 for line in inbox.read_text(encoding="utf-8").splitlines() if line.strip())
+    return f"fb-{n + 1:03d}"
+
+
+def create_feedback(root: Path, payload: dict) -> dict:
+    slide_file = payload.get("slide_file") or ""
+    if not re.fullmatch(r"slides/[\w.\-]+\.html", slide_file):
+        raise ValueError(f"不正な slide_file: {slide_file!r}")
+
+    refs = [_resolve_ref(root, slide_file, r) for r in payload.get("refs", [])]
+    fdir = adapter.feedback_dir(root)
+    inbox = fdir / "inbox.jsonl"
+
+    with _lock:
+        item = {
+            "v": 1,
+            "id": _next_id(inbox),
+            "status": "open",
+            "created_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+            "round": adapter.current_round(root),
+            "slide": {
+                "id": payload.get("slide_id"),
+                "file": slide_file,
+                "title": payload.get("slide_title"),
+            },
+            "instruction": (payload.get("instruction") or "").strip(),
+            "refs": refs,
+        }
+        item["instruction_expanded"] = _expand(item["instruction"], refs, slide_file)
+        with inbox.open("a", encoding="utf-8") as fp:
+            fp.write(json.dumps(item, ensure_ascii=False) + "\n")
+    threads.start(root, item)
+    return item
+
+
+def create_reply(root: Path, payload: dict) -> dict:
+    """スレッドへのユーザーの返信。指定 (#N) を足せるので参照もここで解決する。"""
+    tid = (payload.get("id") or "").strip()
+    events = threads.read(root, tid)
+    if not events:
+        raise ValueError(f"スレッド {tid} がありません")
+    text = (payload.get("text") or "").strip()
+    if not text:
+        raise ValueError("本文が空です")
+
+    slide_file = (events[0].get("slide") or {}).get("file") or ""
+    refs = []
+    if payload.get("refs"):
+        if not re.fullmatch(r"slides/[\w.\-]+\.html", slide_file):
+            raise ValueError(f"不正な slide_file: {slide_file!r}")
+        refs = [_resolve_ref(root, slide_file, r) for r in payload["refs"]]
+
+    cur = threads.state_of(events)
+    # 直したものへの返信は差し戻し。まだ動いていないスレッドへの追記はただのコメント。
+    state = "changes_requested" if cur in ("proposed", "waiting_main", "deferred", "rejected") else None
+    return threads.post(root, tid, role="user", text=text, state=state,
+                        kind="comment", refs=refs,
+                        text_expanded=_expand(text, refs, slide_file) if refs else None)
+
+
+def run_full_check(root: Path, tid: str) -> tuple[dict | None, str]:
+    """マージ前の full 検査。落ちても人の合意を止めない (理由を記録して通す)。"""
+    script = Path(__file__).resolve().parent / "review_check.py"
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(script), str(root), "--thread", tid, "--level", "full"],
+            capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return None, f"検査を実行できなかった: {e}"
+    path = adapter.feedback_dir(root) / "checks" / f"{tid}.json"
+    if proc.returncode != 0 or not path.is_file():
+        tail = [l for l in (proc.stderr or proc.stdout or "").splitlines() if l.strip()]
+        return None, f"検査が失敗した: {tail[-1][:200] if tail else '理由不明'}"
+    try:
+        rec = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        return None, f"検査結果を読めなかった: {e}"
+    return {k: rec.get(k) for k in ("at", "level", "slide", "block", "review", "info", "delta", "top")}, ""
+
+
+def set_state(root: Path, payload: dict) -> dict:
+    tid = (payload.get("id") or "").strip()
+    state = payload.get("state")
+    if not threads.read(root, tid):
+        raise ValueError(f"スレッド {tid} がありません")
+    if state == "merged":
+        chk, skipped = run_full_check(root, tid)
+        return threads.merge(root, tid, intent=(payload.get("intent") or "").strip(),
+                             check=chk, check_skipped=skipped)
+    if state == "closed":
+        return threads.post(root, tid, role="user", kind="close", state="closed",
+                            text=(payload.get("text") or "取り下げ").strip())
+    raise ValueError(f"ここで指定できるのは merged / closed だけ: {state!r}")
+
+
+def read_all(root: Path) -> list[dict]:
+    """inbox に resolved の status を重ねて返す。ビューアのピン表示用。"""
+    fdir = adapter.feedback_dir(root)
+    items: list[dict] = []
+    inbox = fdir / "inbox.jsonl"
+    if inbox.is_file():
+        for line in inbox.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                try:
+                    items.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+    resolved: dict[str, dict] = {}
+    rpath = fdir / "resolved.jsonl"
+    if rpath.is_file():
+        for line in rpath.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                try:
+                    rec = json.loads(line)
+                    resolved[rec.get("id")] = rec
+                except json.JSONDecodeError:
+                    pass
+    for it in items:
+        rec = resolved.get(it["id"])
+        if rec:
+            it["status"] = rec.get("status", it["status"])
+            it["resolution"] = rec
+        # スレッドがあればそちらが正本 (会話の途中でも状態が動く)
+        ev = threads.read(root, it["id"])
+        if ev:
+            it["status"] = threads.state_of(ev)
+            it["events"] = len(ev)
+    return items
+
+
+# ---------------------------------------------------------------- HTTP
+
+def make_handler(root: Path, token: str):
+    class Handler(SimpleHTTPRequestHandler):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, directory=str(root), **kw)
+
+        # 既定のアクセスログは黙らせる。受信通知だけを標準出力に出したい。
+        def log_message(self, *a):
+            pass
+
+        def _json(self, obj, code=200):
+            body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _authed(self, query) -> bool:
+            return (self.headers.get("X-Review-Token") == token
+                    or (query.get("t") or [None])[0] == token)
+
+        def do_GET(self):
+            u = urlparse(self.path)
+            q = parse_qs(u.query)
+            if u.path == "/favicon.ico":
+                # 置かないと毎回 404 がコンソールに出て、本物のエラーが埋もれる
+                self.send_response(204)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            if not u.path.startswith("/__review"):
+                return super().do_GET()
+
+            if not self._authed(q):
+                return self._json({"error": "token が違います"}, 403)
+
+            if u.path in ("/__review", "/__review/"):
+                html = REVIEW_HTML.read_text(encoding="utf-8")
+                html = html.replace("__DECK_TITLE__", adapter.deck_title(root))
+                body = html.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            if u.path == "/__review/api/slides":
+                return self._json({
+                    "deck": adapter.deck_title(root),
+                    "round": adapter.current_round(root),
+                    "slides": adapter.slides(root),
+                })
+
+            if u.path == "/__review/api/feedback":
+                return self._json({"items": read_all(root)})
+
+            if u.path == "/__review/api/threads":
+                rev = threads.revision(root)
+                if (q.get("since") or [None])[0] == rev:
+                    return self._json({"rev": rev, "changed": False})
+                return self._json({
+                    "rev": rev, "changed": True,
+                    "threads": [{**threads.head(root, tid), "log": threads.read(root, tid)}
+                                for tid in threads.ids(root)],
+                })
+
+            if u.path.startswith("/__review/api/thread/"):
+                tid = u.path.rsplit("/", 1)[-1]
+                try:
+                    log = threads.read(root, tid)
+                except threads.ThreadError as e:
+                    return self._json({"error": str(e)}, 400)
+                if not log:
+                    return self._json({"error": "not found"}, 404)
+                return self._json({**threads.head(root, tid), "log": log})
+
+            return self._json({"error": "not found"}, 404)
+
+        def do_POST(self):
+            u = urlparse(self.path)
+            q = parse_qs(u.query)
+            if u.path not in ("/__review/api/feedback", "/__review/api/reply",
+                              "/__review/api/state"):
+                return self._json({"error": "not found"}, 404)
+            if not self._authed(q):
+                return self._json({"error": "token が違います"}, 403)
+
+            length = int(self.headers.get("Content-Length") or 0)
+            if length > 1_000_000:
+                return self._json({"error": "payload が大きすぎます"}, 413)
+            try:
+                payload = json.loads(self.rfile.read(length) or b"{}")
+            except json.JSONDecodeError as e:
+                return self._json({"error": str(e)}, 400)
+
+            if u.path == "/__review/api/feedback":
+                try:
+                    item = create_feedback(root, payload)
+                except (ValueError, threads.ThreadError) as e:
+                    return self._json({"error": str(e)}, 400)
+                n = len(item["refs"])
+                head = item["instruction"].replace("\n", " ")[:60]
+                print(f'[feedback] {item["id"]} slide={item["slide"]["id"]} refs={n} :: {head}',
+                      flush=True)
+                return self._json({"ok": True, "item": item})
+
+            if u.path == "/__review/api/reply":
+                try:
+                    ev = create_reply(root, payload)
+                except ValueError as e:
+                    return self._json({"error": str(e)}, 400)
+                except threads.ThreadError as e:
+                    return self._json({"error": str(e)}, 409)
+                print(f'[reply] {ev["id"]} #{ev["seq"]} state={ev.get("state") or "-"} '
+                      f':: {ev["text"].replace(chr(10), " ")[:60]}', flush=True)
+                return self._json({"ok": True, "event": ev})
+
+            try:
+                ev = set_state(root, payload)
+            except ValueError as e:
+                return self._json({"error": str(e)}, 400)
+            except threads.ThreadError as e:
+                # gates を割ったままのマージ / 状態の順序違反はここで止まる
+                return self._json({"error": str(e)}, 409)
+            print(f'[state] {ev["id"]} #{ev["seq"]} → {ev.get("state")}'
+                  + (f' :: {ev.get("intent")}' if ev.get("intent") else ''), flush=True)
+            return self._json({"ok": True, "event": ev})
+
+    return Handler
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("deck", type=Path)
+    ap.add_argument("--port", type=int, default=0, help="既定はランダムな空きポート")
+    ap.add_argument("--open", action="store_true", help="ブラウザを自動で開く")
+    args = ap.parse_args()
+
+    root = args.deck.resolve()
+    if not adapter.is_deck(root):
+        print(f"error: {root} に slides/ がありません", file=sys.stderr)
+        return 2
+
+    token = secrets.token_urlsafe(12)
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(root, token))
+    port = server.server_address[1]
+    url = f"http://127.0.0.1:{port}/__review/?t={token}"
+
+    print(f"deck   : {root}")
+    print(f"review : {url}")
+    print(f"inbox  : {adapter.feedback_dir(root) / 'inbox.jsonl'}")
+    print("使い方 : E でレビューモード。要素をクリックすると入力欄に #1 のブロックが入る。"
+          "空白をドラッグすると領域指定。P でピンだけ隠す。T で白/ナイト切替。"
+          "Cmd/Ctrl+Enter で送信。E で閉じると枠は全部消える。", flush=True)
+
+    if args.open:
+        webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nstopped", flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

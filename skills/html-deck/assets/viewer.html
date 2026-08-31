@@ -5,73 +5,190 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'unsafe-inline'; frame-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'">
   <title>__DECK_TITLE__</title>
+  <script>
+    // 描画前にテーマを確定させる。あとで当てると白い画面が一瞬出る。
+    // キーはレビュービューア (review.html) と共有する。同じデッキを同じ見え方で開くため。
+    try {
+      const t = localStorage.getItem("deck-review-theme");
+      if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+    } catch (e) { /* file:// や localStorage が無い環境では system 追従のまま */ }
+  </script>
   <style>
+    /* =========================================================================
+       白モード / ナイトモード。色は必ず :root に全部定義してから、
+       dark で「同じキーを上書き」する。片方にしか無い色を作らない。
+       Office (PowerPoint) の Fluent グレーに寄せてある。review.html と同じ値。
+       ====================================================================== */
     :root {
-      color-scheme: dark;
-      font-family: "Hiragino Sans", "Yu Gothic", sans-serif;
-      --shell: #091321; --line: #25364d; --text: #dce6f4; --muted: #7f91a9; --accent: #4f80ff;
+      color-scheme: light;
+      --app:        #f3f2f1;   /* スライドを浮かせる地の色 */
+      --chrome:     #ffffff;   /* ツールバー・ステータスバー */
+      --chrome-2:   #faf9f8;
+      --line:       #e1dfdd;
+      --line-2:     #c8c6c4;
+      --text:       #201f1e;
+      --text-2:     #605e5c;
+      --text-3:     #8a8886;
+      --brand:      #c43e1c;   /* 赤橙。S のマークに使うアプリの身元の色 */
+      --brand-ink:  #ffffff;
+      --accent:     #0f6cbd;
+      --hot:        #a4620a;
+      --hot-soft:   #fdf6e7;
+      --shadow-1:   0 1.6px 3.6px rgba(0,0,0,.10), 0 .3px .9px rgba(0,0,0,.07);
+      --shadow-2:   0 12px 28px rgba(0,0,0,.16), 0 2px 6px rgba(0,0,0,.08);
+      --ui: "Segoe UI", "Yu Gothic UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN",
+            "Noto Sans JP", system-ui, sans-serif;
+      --mono: "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
     }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --app:        #161514;
+      --chrome:     #292827;
+      --chrome-2:   #1f1e1d;
+      --line:       #3d3c3b;
+      --line-2:     #565453;
+      --text:       #f3f2f1;
+      --text-2:     #c8c6c4;
+      --text-3:     #979593;
+      --brand:      #ef7a5c;
+      --brand-ink:  #2b1006;
+      --accent:     #62abf5;
+      --hot:        #f0b455;
+      --hot-soft:   #3a2d17;
+      --shadow-1:   0 1.6px 3.6px rgba(0,0,0,.35), 0 .3px .9px rgba(0,0,0,.30);
+      --shadow-2:   0 16px 40px rgba(0,0,0,.50), 0 2px 8px rgba(0,0,0,.35);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --app:        #161514;
+        --chrome:     #292827;
+        --chrome-2:   #1f1e1d;
+        --line:       #3d3c3b;
+        --line-2:     #565453;
+        --text:       #f3f2f1;
+        --text-2:     #c8c6c4;
+        --text-3:     #979593;
+        --brand:      #ef7a5c;
+        --brand-ink:  #2b1006;
+        --accent:     #62abf5;
+        --hot:        #f0b455;
+        --hot-soft:   #3a2d17;
+        --shadow-1:   0 1.6px 3.6px rgba(0,0,0,.35), 0 .3px .9px rgba(0,0,0,.30);
+        --shadow-2:   0 16px 40px rgba(0,0,0,.50), 0 2px 8px rgba(0,0,0,.35);
+      }
+    }
+
     * { box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: var(--shell); color: var(--text); }
-    body { display: grid; grid-template-rows: 48px 1fr 58px; min-width: 0; }
-    .topbar, .controls { display: flex; align-items: center; width: 100%; min-width: 0; padding: 0 24px; }
-    .topbar { justify-content: space-between; border-bottom: 1px solid var(--line); }
-    .brand, .counter { font: 700 12px/1 "SFMono-Regular", monospace; letter-spacing: .12em; text-transform: uppercase; }
-    .brand { color: #9eb6d5; }
-    .counter { color: var(--muted); }
-    .stage { width: 100%; min-width: 0; min-height: 0; position: relative; overflow: hidden; }
+    html, body {
+      width: 100%; height: 100%; margin: 0; overflow: hidden;
+      background: var(--app); color: var(--text);
+      font-family: var(--ui); font-size: 13px;
+      -webkit-font-smoothing: antialiased;
+    }
+    body { display: grid; grid-template-rows: 48px 1fr 28px; min-width: 0; }
+    button { font-family: inherit; }
+    ::selection { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+
+    /* ------------------------------------------------------------ ツールバー */
+    .toolbar {
+      display: flex; align-items: center; gap: 10px; padding: 0 12px 0 14px;
+      background: var(--chrome); border-bottom: 1px solid var(--line);
+      box-shadow: var(--shadow-1); z-index: 4; min-width: 0;
+    }
+    .logo {
+      width: 22px; height: 22px; flex: none; border-radius: 3px;
+      background: var(--brand); color: var(--brand-ink);
+      display: grid; place-items: center; font: 700 13px/1 var(--ui);
+    }
+    .deck { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden;
+            text-overflow: ellipsis; max-width: 46vw; }
+    .spacer { flex: 1; min-width: 0; }
+    .progress { width: min(30vw, 380px); height: 3px; flex: none; border-radius: 2px;
+                background: var(--line); overflow: hidden; }
+    .progress > span { display: block; height: 100%; background: var(--accent);
+                       transition: width .25s ease; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px;
+      border: 1px solid transparent; border-radius: 4px; background: none;
+      color: var(--text); font-size: 12.5px; cursor: pointer; white-space: nowrap;
+    }
+    .btn:hover { background: var(--chrome-2); border-color: var(--line); }
+    .btn:active { background: var(--line); }
+    .btn.icon { width: 30px; padding: 0; justify-content: center; font-size: 14px; }
+    .btn:focus-visible, .sbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .sep { width: 1px; height: 22px; background: var(--line); flex: none; }
+
+    /* ----------------------------------------------------------------- 舞台 */
+    .stage { position: relative; min-height: 0; min-width: 0; overflow: hidden; background: var(--app); }
     .frame {
-      position: absolute; left: 50%; top: 50%;
-      width: 1600px; height: 900px;
-      transform: translate(-50%, -50%) scale(var(--deck-scale, 1));
-      transform-origin: center;
-      background: #fff;
-      box-shadow: 0 28px 80px rgba(0,0,0,.42), 0 0 0 1px rgba(255,255,255,.08);
+      position: absolute; left: 50%; top: 50%; width: 1600px; height: 900px;
+      transform: translate(-50%, -50%) scale(var(--deck-scale, 1)); transform-origin: center;
+      background: #fff; box-shadow: var(--shadow-2);
+      outline: 1px solid var(--line-2); outline-offset: 0;
     }
     iframe { width: 1600px; height: 900px; border: 0; display: block; background: #fff; }
-    .scale-note {
-      position: absolute; right: 14px; bottom: 12px; z-index: 2; opacity: 0; pointer-events: none;
-      padding: 8px 11px; border: 1px solid #7b5c22; border-radius: 4px;
-      background: rgba(29,22,10,.92); color: #ffd37d;
-      font: 700 11px/1.35 "SFMono-Regular", monospace; transition: opacity .18s ease;
+    .banner {
+      position: absolute; left: 50%; top: 18px; transform: translateX(-50%); z-index: 5;
+      max-width: 70%; padding: 10px 14px; border-radius: 4px; display: none; white-space: pre-wrap;
+      background: var(--hot-soft); color: var(--hot); box-shadow: var(--shadow-1);
+      border: 1px solid color-mix(in srgb, var(--hot) 40%, transparent);
+      font: 12px/1.6 var(--ui);
     }
-    .scale-note[data-visible="true"] { opacity: 1; }
-    .controls { gap: 14px; border-top: 1px solid var(--line); }
-    button {
-      width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 50%;
-      background: #101e30; color: var(--text); cursor: pointer; font-size: 16px;
+    .banner[data-show="true"] { display: block; }
+
+    /* ----------------------------------------------------- ステータスバー */
+    .status {
+      display: flex; align-items: center; gap: 10px; padding: 0 8px 0 14px;
+      background: var(--chrome); border-top: 1px solid var(--line);
+      font-size: 11.5px; color: var(--text-2); min-width: 0;
     }
-    button:hover { border-color: #5275a4; background: #172a42; }
-    button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-    button:disabled { opacity: .3; cursor: default; }
-    .title { flex: 1; min-width: 0; font-size: 13px; color: #bac8db; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .progress { width: min(32vw, 420px); height: 3px; background: #1c2b3e; overflow: hidden; }
-    .progress > span { display: block; height: 100%; background: var(--accent); transition: width .25s ease; }
-    .hint { font: 11px/1 "SFMono-Regular", monospace; color: var(--muted); }
-    @media (max-width: 720px) { .hint, .progress { display: none; } .topbar, .controls { padding-inline: 12px; } }
+    .status .slidetitle { min-width: 0; white-space: nowrap; overflow: hidden;
+                          text-overflow: ellipsis; color: var(--text-2); }
+    .status .counter { font: 11px/1 var(--mono); color: var(--text-2); flex: none; }
+    .status .zoom { font: 11px/1 var(--mono); color: var(--text-3); flex: none; }
+    .status .hint { font: 11px/1 var(--mono); color: var(--text-3); flex: none; }
+    .sbtn {
+      width: 22px; height: 20px; border: 0; border-radius: 3px; background: none; flex: none;
+      color: var(--text-2); cursor: pointer; font-size: 12px; line-height: 1;
+    }
+    .sbtn:hover:not(:disabled) { background: var(--chrome-2); color: var(--text); }
+    .sbtn:disabled { opacity: .3; cursor: default; }
+
+    @media (max-width: 720px) { .progress, .status .hint { display: none; } .toolbar { padding-inline: 12px; } }
   </style>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">__DECK_TITLE__</div>
-    <div class="counter" id="counter" aria-live="polite">01 / 01</div>
+  <header class="toolbar">
+    <div class="logo" aria-hidden="true">S</div>
+    <div class="deck">__DECK_TITLE__</div>
+    <div class="spacer"></div>
+    <div class="progress" aria-hidden="true"><span id="progress"></span></div>
+    <div class="sep"></div>
+    <button class="btn icon" id="themeBtn" type="button" title="表示テーマ (T)" aria-label="表示テーマ"></button>
   </header>
+
   <main class="stage">
     <!-- sandbox に allow-same-origin が要る。値なしの sandbox は iframe を
          不透明オリジンにするため、スライド側 CSP の 'self' が何にも一致せず、
          共有の theme.css ごと全て遮断されて素のHTMLが表示される。
          allow-scripts は付けないので、スクリプト遮断という本来の目的は保たれる。 -->
-    <div class="frame"><iframe id="slide" title="プレゼンテーションスライド" sandbox="allow-same-origin"></iframe></div>
-    <div class="scale-note" id="scaleNote" role="status">表示が小さいため、全画面表示を推奨します</div>
+    <div class="frame" id="frameShell">
+      <iframe id="slide" title="プレゼンテーションスライド" sandbox="allow-same-origin"></iframe>
+    </div>
+    <div class="banner" id="banner" role="status">表示が小さいため、全画面表示を推奨します</div>
   </main>
-  <footer class="controls">
-    <button id="prev" type="button" aria-label="前のスライド">←</button>
-    <button id="next" type="button" aria-label="次のスライド">→</button>
-    <div class="title" id="title" aria-live="polite"></div>
-    <div class="progress" aria-hidden="true"><span id="progress"></span></div>
-    <div class="hint">← → / SPACE</div>
-    <button id="fullscreen" type="button" aria-label="全画面表示">⛶</button>
+
+  <footer class="status">
+    <button class="sbtn" id="prev" type="button" aria-label="前へ">◀</button>
+    <button class="sbtn" id="next" type="button" aria-label="次へ">▶</button>
+    <span class="counter" id="counter" aria-live="polite">00 / 00</span>
+    <span class="slidetitle" id="title" aria-live="polite"></span>
+    <span class="hint">← → / SPACE</span>
+    <span class="zoom" id="zoom"></span>
+    <button class="sbtn" id="fullscreen" type="button" aria-label="全画面" title="全画面">⛶</button>
   </footer>
+
   <script>
     // このブロックは check_deck.py が slides/*.html の <title> から自動再生成する。
     // 手で書き換えても次回の検査で上書きされる。順序はファイル名順。
@@ -80,59 +197,86 @@
     ];
     // </slides>
 
-    const frame = document.getElementById("slide");
-    const frameShell = document.querySelector(".frame");
+    const $ = (id) => document.getElementById(id);
+    const frame = $("slide");
+    const frameShell = $("frameShell");
     const stage = document.querySelector(".stage");
-    const counter = document.getElementById("counter");
-    const title = document.getElementById("title");
-    const progress = document.getElementById("progress");
-    const prev = document.getElementById("prev");
-    const next = document.getElementById("next");
-    const scaleNote = document.getElementById("scaleNote");
     let index = Math.min(Math.max((Number(location.hash.slice(1)) || 1) - 1, 0), Math.max(slides.length - 1, 0));
 
+    /* ------------------------------------------------------------- テーマ */
+    const THEME_ICON = { light: "☀", dark: "☾" };
+    function currentTheme() {
+      return document.documentElement.dataset.theme
+        || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    }
+    // アイコンは「いま見えている色」を映す。dataset は触らない (system 追従を殺さない)
+    function paintThemeBtn() {
+      const t = currentTheme();
+      $("themeBtn").textContent = THEME_ICON[t === "dark" ? "light" : "dark"];
+      $("themeBtn").title = t === "dark" ? "白モードにする (T)" : "ナイトモードにする (T)";
+    }
+    // 固定するのは、ユーザーが明示的に切り替えたときだけ
+    function setTheme(t) {
+      document.documentElement.dataset.theme = t;
+      try { localStorage.setItem("deck-review-theme", t); } catch (e) { /* file:// では覚えない */ }
+      paintThemeBtn();
+    }
+
+    /* --------------------------------------------------------------- 表示 */
     function fitDeck() {
-      const width = Math.max(stage.clientWidth - 56, 160);
-      const height = Math.max(stage.clientHeight - 36, 90);
-      const scale = Math.min(width / 1600, height / 900);
-      frameShell.style.setProperty("--deck-scale", String(scale));
-      scaleNote.dataset.visible = String(scale < 0.45);
+      const w = Math.max(stage.clientWidth - 56, 160);
+      const h = Math.max(stage.clientHeight - 40, 90);
+      const s = Math.min(w / 1600, h / 900);
+      frameShell.style.setProperty("--deck-scale", String(s));
+      $("zoom").textContent = Math.round(s * 100) + "%";
+      $("banner").dataset.show = String(s < 0.45);
     }
 
     function render(updateHash = true) {
       if (!slides.length) return;
       frame.src = slides[index][0];
       frame.title = `スライド ${index + 1}: ${slides[index][1]}`;
-      counter.textContent = `${String(index + 1).padStart(2, "0")} / ${String(slides.length).padStart(2, "0")}`;
-      title.textContent = slides[index][1];
-      progress.style.width = `${((index + 1) / slides.length) * 100}%`;
-      prev.disabled = index === 0;
-      next.disabled = index === slides.length - 1;
+      $("counter").textContent =
+        `${String(index + 1).padStart(2, "0")} / ${String(slides.length).padStart(2, "0")}`;
+      $("title").textContent = slides[index][1];
+      $("progress").style.width = `${((index + 1) / slides.length) * 100}%`;
+      $("prev").disabled = index === 0;
+      $("next").disabled = index === slides.length - 1;
       if (updateHash) history.replaceState(null, "", `#${index + 1}`);
     }
     function go(delta) {
       const n = Math.min(Math.max(index + delta, 0), slides.length - 1);
       if (n !== index) { index = n; render(); }
     }
-    prev.addEventListener("click", () => go(-1));
-    next.addEventListener("click", () => go(1));
-    document.getElementById("fullscreen").addEventListener("click", async () => {
+
+    $("prev").addEventListener("click", () => go(-1));
+    $("next").addEventListener("click", () => go(1));
+    $("themeBtn").addEventListener("click", () => setTheme(currentTheme() === "dark" ? "light" : "dark"));
+    $("fullscreen").addEventListener("click", async () => {
       if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
       else await document.exitFullscreen();
     });
     window.addEventListener("keydown", (event) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (["ArrowRight", "PageDown", " "].includes(event.key)) { event.preventDefault(); go(1); }
       if (["ArrowLeft", "PageUp"].includes(event.key)) { event.preventDefault(); go(-1); }
       if (event.key === "Home") { index = 0; render(); }
       if (event.key === "End") { index = slides.length - 1; render(); }
+      if (event.key === "t" || event.key === "T") {
+        setTheme(currentTheme() === "dark" ? "light" : "dark");
+      }
     });
     window.addEventListener("hashchange", () => {
       const requested = Number(location.hash.slice(1));
       if (requested >= 1 && requested <= slides.length) { index = requested - 1; render(false); }
     });
+    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+      if (!document.documentElement.dataset.theme) paintThemeBtn();
+    });
     new ResizeObserver(fitDeck).observe(stage);
     window.addEventListener("resize", fitDeck);
     document.addEventListener("fullscreenchange", fitDeck);
+    paintThemeBtn();
     fitDeck();
     render(false);
   </script>

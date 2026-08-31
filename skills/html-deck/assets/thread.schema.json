@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://html-deck/thread.schema.json",
+  "title": "レビュースレッドのイベント",
+  "description": "指摘1件 = 1本のスレッド。.loop/feedback/threads/<id>.jsonl に1行1イベントで追記する。状態はイベント列の最後の state。エージェントは proposed までしか進められず、merged にできるのはユーザーだけ。",
+  "type": "object",
+  "required": ["v", "id", "seq", "at", "role", "kind"],
+  "additionalProperties": true,
+  "properties": {
+    "v": { "const": 1 },
+    "id": { "type": "string", "pattern": "^fb-\\d+$" },
+    "seq": { "type": "integer", "minimum": 1, "description": "そのスレッド内の連番" },
+    "at": { "type": "string", "format": "date-time" },
+    "role": { "enum": ["user", "ai"] },
+    "actor": { "enum": ["fixer", "main"], "description": "role=ai のとき、どちらが書いたか" },
+    "kind": {
+      "enum": ["comment", "escalate", "decision", "merge", "close", "note"],
+      "description": "note は確定後の追記 (テーマ変更の影響通知など)。状態は動かさない"
+    },
+    "state": {
+      "enum": ["open", "in_progress", "waiting_main", "proposed",
+               "changes_requested", "merged", "deferred", "rejected", "closed"],
+      "description": "このイベントの後の状態。省略すると状態は動かない"
+    },
+    "text": { "type": "string", "description": "ユーザーに読ませる本文" },
+    "text_expanded": { "type": "string", "description": "#N を実体に置換した版" },
+    "slide": {
+      "type": "object",
+      "description": "起票イベント (seq 1) にだけ入る",
+      "properties": {
+        "id": { "type": "string" },
+        "file": { "type": "string", "pattern": "^slides/[\\w.\\-]+\\.html$" },
+        "title": { "type": "string" }
+      }
+    },
+    "refs": {
+      "type": "array",
+      "description": "スライド上の指定。形は feedback.schema.json の refs と同じ。返信にも足せる",
+      "items": { "type": "object" }
+    },
+    "changes": {
+      "type": "array",
+      "description": "エージェントが実際に触った場所",
+      "items": {
+        "type": "object",
+        "required": ["file", "line"],
+        "properties": {
+          "file": { "type": "string" },
+          "line": { "type": "integer" },
+          "note": { "type": "string", "description": "3ヶ月 → 6ヶ月 のような1行" }
+        }
+      }
+    },
+    "check": {
+      "type": "object",
+      "description": "check_deck.py の結果 (review_check.py が畳んだもの)。修正ごとは brief、マージ前は full",
+      "properties": {
+        "at": { "type": "string" },
+        "level": { "enum": ["brief", "full", "deck"] },
+        "slide": { "type": "string" },
+        "block": { "type": "integer" },
+        "review": { "type": "integer" },
+        "info": { "type": "integer" },
+        "delta": { "type": "object", "description": "前回そのスレッドで記録した結果との差" },
+        "top": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "escalation": {
+      "type": "object",
+      "description": "kind=escalate。メインへ渡るのはこの4項目だけで、会話は渡らない",
+      "required": ["key", "slide", "ask"],
+      "properties": {
+        "key": {
+          "enum": ["body_font_small", "heading_scale", "line_height", "contrast_low",
+                   "palette_color", "spacing_rhythm", "figure_font_small", "other"],
+          "description": "固定語彙。自由文にすると集約の判定が曖昧になる。other は集約に数えない"
+        },
+        "slide": { "type": "string" },
+        "ask": { "type": "string" },
+        "local": { "type": "string", "description": "この枚だけで収める案" }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "description": "kind=decision。メインの裁定をスレッドに書き戻したもの",
+      "properties": {
+        "key": { "type": "string" },
+        "status": { "enum": ["applied_by_main", "declined"] }
+      }
+    },
+    "intent": {
+      "type": "string",
+      "description": "kind=merge。確定した意図の1行。deck.md の ## accepted と merged.jsonl に入る"
+    },
+    "check_skipped": {
+      "type": "string",
+      "description": "マージ前の full 検査を実行できなかったときの理由。人の合意は止めない"
+    }
+  }
+}

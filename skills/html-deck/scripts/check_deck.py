@@ -284,7 +284,11 @@ EXTRACT_JS = r"""
     });
   });
 
-  const bullets = document.querySelectorAll('li').length;
+  // 箇条書きは「何項目あるか」だけでは足りない。1項目が文章になっている枚は、
+  // 項目数が範囲内でも読まれない。項目ごとの長さを返して Python 側で測る。
+  const bulletTexts = [...document.querySelectorAll('li')]
+    .map((li) => (li.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200));
+  const bullets = bulletTexts.length;
 
   return {
     title: document.title || '',
@@ -301,6 +305,7 @@ EXTRACT_JS = r"""
     overlaps,
     figures,
     bullets,
+    bulletTexts,
     textArea: Math.round(textArea),
     allText: allText.trim(),
     // <link rel=stylesheet> の実体は file:// だと cssRules が読めない (opaque)。
@@ -558,6 +563,30 @@ def evaluate(data: dict, gates: dict, source: str, slide_id: str, theme_css: str
         # 図が主役の枚は文字が少なくて当然。図の面積を見ずに薄いと言わない。
         add("info", "underfilled", f"文字ブロックが画面の {area_ratio:.0%}。1枚として情報が薄い可能性。")
 
+    # --- 情報量の統制 (図に置き換えられていないか / 箇条書きが段落になっていないか)
+    # アイコン程度の svg は「図がある」に数えない。数えると、装飾を1つ置くだけで
+    # 文字だけの枚が図のある枚として通ってしまう。
+    figs = data.get("figures", [])
+    big_figs = [f for f in figs if (f["w"] * f["h"]) / (W * H) >= gates["figure_min_area_ratio"]]
+    has_figure = bool(big_figs)
+    if not has_figure and ja >= gates["text_only_ja_chars"]:
+        add("review", "text_only",
+            f"図が無く日本語 {ja}文字。この枚の関係 (比較/因果/構造/数量) は図にできないか。"
+            "文字だけの枚は読み飛ばされ、記憶にも残らない。")
+
+    bullet_texts = data.get("bulletTexts", [])
+    if data["bullets"] > gates["max_bullets"]:
+        add("review", "bullet_flood",
+            f"箇条書きが {data['bullets']}項目。{gates['max_bullets']}項目を超えると"
+            "並列に見えるだけで順序も重みも伝わらない。削るか、図か表に組み替える。")
+    long_bullets = [t for t in bullet_texts
+                    if len(JA_RE.findall(t)) > gates["max_bullet_chars_ja"]]
+    if long_bullets:
+        add("review", "bullet_is_paragraph",
+            f"{len(long_bullets)}項目が {gates['max_bullet_chars_ja']}字を超えている "
+            f"(例「{long_bullets[0][:40]}」)。箇条書きの形をした段落は読まれない。"
+            "体言止めまで削るか、本文にする。")
+
     # --- 文字の重なり
     for ov in data.get("overlaps", []):
         where = "図の中で" if ov["inFigure"] else ""
@@ -653,12 +682,77 @@ def evaluate(data: dict, gates: dict, source: str, slide_id: str, theme_css: str
             "body_basis": body_basis,
             "hierarchy_ratio": round(ratio_h, 2),
             "text_area_ratio": round(area_ratio, 3),
+            "figure_count": len(figs),
+            "figure_area_ratio": round(fig_share, 3),
+            "has_figure": has_figure,
             "bullets": data["bullets"],
+            "max_bullet_chars": max((len(JA_RE.findall(t)) for t in bullet_texts), default=0),
             "families": data["families"],
         },
         "counts": counts,
         "findings": findings,
     }
+
+
+# ---------------------------------------------------------------- デッキ全体
+
+
+def deck_level(results: list[dict], gates: dict) -> list[dict]:
+    """1枚ずつ見ても分からない欠陥を、並びとして測る。
+
+    情報量の偏りは枚ごとの検査では出ない。1枚だけ文字が多いのは正当でも、
+    文字だけの枚が5枚続くデッキは、どの1枚も合格のまま全体として読まれない。
+    """
+    out: list[dict] = []
+    n = len(results)
+    if n < 3:
+        return out   # 3枚未満に並びの話をしても意味がない
+
+    def add(sev, code, msg, **extra):
+        out.append({"severity": sev, "code": code, "message": msg, **extra})
+
+    with_fig = [r["slide"] for r in results if r["metrics"].get("has_figure")]
+    ratio = len(with_fig) / n
+    if ratio < gates["figure_slide_ratio_min"]:
+        lacking = [r["slide"] for r in results if not r["metrics"].get("has_figure")]
+        add("review", "figure_coverage",
+            f"図のある枚が {len(with_fig)}/{n}枚 ({ratio:.0%})。"
+            f"{gates['figure_slide_ratio_min']:.0%} を下回ると、通しで読んだとき文字の壁になる。"
+            f"図が無い枚: {', '.join(lacking[:8])}{' …' if len(lacking) > 8 else ''}",
+            slides=lacking)
+
+    # 図のない枚が続く区間。1枚おきに図があれば通る。連続が問題。
+    run, runs = [], []
+    for r in results:
+        if r["metrics"].get("has_figure"):
+            if run:
+                runs.append(run)
+                run = []
+        else:
+            run.append(r["slide"])
+    if run:
+        runs.append(run)
+    limit = gates["text_only_streak_max"]
+    for streak in runs:
+        # 表紙も章扉も除外しない。図が無い枚が3枚続けば、それが表紙から始まって
+        # いても読み手には文字の壁として続く。除外を入れると、この検査は
+        # 「言い訳が効く検査」になって機能しなくなる。
+        if len(streak) > limit:
+            add("review", "text_only_streak",
+                f"図のない枚が {len(streak)}枚続いている ({' → '.join(streak)})。"
+                f"{limit}枚までにする。続くと聞き手は情報が増えていないと感じる。"
+                "どれか1枚を図に置き換えるか、2枚を1枚に統合する。",
+                slides=streak)
+
+    over = [(r["slide"], r["metrics"]["ja_chars"]) for r in results
+            if r["metrics"]["ja_chars"] > gates["max_ja_chars"]]
+    if len(over) >= max(3, n * 0.4):
+        add("review", "deck_too_dense",
+            f"{len(over)}/{n}枚が1枚あたり {gates['max_ja_chars']}字を超えている。"
+            "1枚ずつ削るより、デッキの分量そのものを見直す (枚を増やして分ける / 節を落とす)。"
+            "口頭で話す資料なら 300字を目安にする。",
+            slides=[sl for sl, _ in over])
+    return out
 
 
 # ---------------------------------------------------------------- ビューア同期
@@ -774,6 +868,9 @@ def main() -> int:
     ap.add_argument("--slide", action="append", default=None, help="特定スライドだけ検査 (例 --slide 03)")
     ap.add_argument("--gates", type=Path, default=DEFAULT_GATES)
     ap.add_argument("--no-shots", action="store_true", help="スクリーンショットを撮らない (高速)")
+    ap.add_argument("--out", type=Path, default=None,
+                    help="結果の出力先。既定は <deck>/.loop/round-N。"
+                         "ラウンドを進めずに検査したいとき (レビュー中の1枚検査など) に使う")
     args = ap.parse_args()
 
     deck = args.deck.resolve()
@@ -798,7 +895,7 @@ def main() -> int:
         rnd = max(existing) + 1 if existing else 1
     else:
         rnd = args.round
-    out_dir = loop_dir / f"round-{rnd}"
+    out_dir = (args.out.resolve() if args.out else loop_dir / f"round-{rnd}")
     shot_dir = out_dir / "shots"
     shot_dir.mkdir(parents=True, exist_ok=True)
 
@@ -834,8 +931,14 @@ def main() -> int:
             titles.append((f, data["title"] or f.stem))
 
         # スライド一覧を先に同期してから、実際の配布経路 (ビューア) を開いて確かめる。
-        synced = sync_viewer(deck, titles)
+        # --slide で絞ったときは同期しない。titles に絞った分しか入っていないので、
+        # そのまま書くと index.html のスライド一覧が1枚に削れる。
+        synced = sync_viewer(deck, titles) if not args.slide else False
         deck_findings = check_viewer(page, deck)
+        # 並びの検査は全枚そろっているときだけ。--slide で絞った結果に当てると
+        # 「図が無い枚が続く」が常に出て、指摘の意味が壊れる。
+        if not args.slide:
+            deck_findings += deck_level(results, gates)
 
         if shots:
             build_contact_sheet(page, shots, out_dir / "contact-sheet.png")
@@ -870,7 +973,7 @@ def main() -> int:
     print()
 
     if deck_findings:
-        print("  デッキ全体 (配布経路の検査):")
+        print("  デッキ全体 (配布経路と情報量の並び):")
         for f in deck_findings:
             print(f"        {f['severity']:<6} {f['code']:<22} {f['message']}")
         print()
@@ -894,8 +997,9 @@ def main() -> int:
     for r in results:
         m = r["metrics"]
         flag = "BLOCK" if r["counts"]["block"] else ("review" if r["counts"]["review"] else "ok   ")
+        fig = "図" if m.get("has_figure") else "  "
         print(f"  [{flag}] {r['slide']:<22} 本文最小{m['min_body_font_px']:>4.0f}px 階層{m['hierarchy_ratio']:>5.2f}x "
-              f"和{m['ja_chars']:>4}字 占有{m['text_area_ratio']:.0%}  {r['headline'][:34]}")
+              f"和{m['ja_chars']:>4}字 占有{m['text_area_ratio']:.0%} {fig}  {r['headline'][:34]}")
         grouped: dict[tuple[str, str], list[dict]] = {}
         for fnd in r["findings"]:
             if fnd["severity"] == "info":

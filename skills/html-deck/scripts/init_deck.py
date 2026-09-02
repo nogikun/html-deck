@@ -16,6 +16,7 @@ theme.css と index.html は既にあれば上書きしない (--force で上書
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -34,7 +35,15 @@ DECK_MD = """# {title}
 TBD
 
 ## audience
+<!-- 誰に向けるか。何を決められる人か。前提をどこから説明するかがここで決まる -->
 TBD
+
+## situation
+<!-- 手順1のインタビューで聞いた「どう見せる資料か」。1枚の情報量の予算がここで決まる。
+     話しながら見せる = 1枚300字 / 置いて読ませる = 420〜520字 / 両方 = 300字 + 話す内容は別持ち -->
+- 場面: TBD   <!-- 話しながら / 置いて読ませる / 両方 -->
+- 持ち時間: TBD
+- 1枚の字数の上限: TBD   <!-- gates.json の max_ja_chars と合わせる -->
 
 ## takeaway
 <!-- デッキ全体の結論。最後の1枚がこれを解いていれば通る -->
@@ -45,7 +54,8 @@ TBD
 - 言語: 日本語
 - 納品形式: HTML (+ 固定PDF)
 - 禁止: 外部通信 / スクリプト / 未出典の数値
-- しきい値の変更: なし   <!-- gates.json を変える場合はここに理由を書く -->
+- しきい値の変更: なし   <!-- gates.json を変える場合はここに理由を書く。
+                            場面に応じた max_ja_chars の変更もここに書く。ラウンド0で1度だけ -->
 
 ## design
 <!-- 設計パスで決めた内容をここに固定する。以降のラウンドで変えない -->
@@ -53,12 +63,53 @@ TBD
 - 書体: TBD
 - signature: TBD  <!-- このデッキを憶えてもらう1つの装置 -->
 
+## accepted
+<!-- 確定した判断を1行ずつ積む。次のラウンドの批評担当にそのまま渡す。
+     渡さないと同じ場所を逆方向に指摘され続けて往復する。
+     ユーザーのレビュー由来のものは、ユーザーがマージした時点で [user] 付きで積まれる。 -->
+
 ## storyboard
 
-| id | claim (言い切りの見出し) | job | evidence | 問い(入) → 問い(出) |
-| --- | --- | --- | --- | --- |
-| 01 | TBD | 宣言 | TBD | — → TBD |
+<!-- visual = その枚を何の絵で見せるか。「なし」と書いた行が3つ以上続いたら、
+     通しで見たとき文字の壁になる (check_deck.py の text_only_streak)。
+     デッキ全体で図のある枚を4割以上にする。 -->
+
+| id | claim (言い切りの見出し) | job | visual | evidence | 問い(入) → 問い(出) |
+| --- | --- | --- | --- | --- | --- |
+| 01 | TBD | 宣言 | なし | TBD | — → TBD |
 """
+
+
+SLIDES_RE = re.compile(r"// <slides>.*?// </slides>", re.S)
+TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
+
+
+def refresh_viewer(deck: Path) -> int:
+    """index.html を今のビューアに入れ替える。中身 (スライド一覧・タイトル) は引き継ぐ。
+
+    ビューアの見た目を直したときに、既存のデッキが古いままになるのを防ぐ。
+    theme.css には触らない — あれはデッキごとのデザインで、テンプレートに戻したら壊れる。
+    """
+    index = deck / "index.html"
+    if not index.is_file():
+        print(f"error: {index} がありません", file=sys.stderr)
+        return 2
+
+    old = index.read_text(encoding="utf-8")
+    m = TITLE_RE.search(old)
+    title = re.sub(r"\s+", " ", m.group(1)).strip() if m else deck.name
+    keep = SLIDES_RE.search(old)
+
+    html = (ASSETS / "viewer.html").read_text(encoding="utf-8").replace("__DECK_TITLE__", title)
+    if keep:
+        html = SLIDES_RE.sub(lambda _: keep.group(0), html)
+    else:
+        print("warning: 元の index.html にスライド一覧の印が無かった。"
+              "check_deck.py を1回流して再生成すること", file=sys.stderr)
+    index.write_text(html, encoding="utf-8")
+    print(f"index.html を入れ替えた: {index}")
+    print("  タイトルとスライド一覧は引き継いだ。theme.css と slides/ は触っていない。")
+    return 0
 
 
 def main() -> int:
@@ -66,9 +117,15 @@ def main() -> int:
     ap.add_argument("dir", type=Path)
     ap.add_argument("--title", default="Untitled deck")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--refresh-viewer", action="store_true",
+                    help="既存デッキの index.html だけを今のビューアに入れ替える "
+                         "(theme.css / deck.md / slides は触らない。スライド一覧は引き継ぐ)")
     args = ap.parse_args()
 
     deck = args.dir.resolve()
+    if args.refresh_viewer:
+        return refresh_viewer(deck)
+
     (deck / "slides").mkdir(parents=True, exist_ok=True)
     (deck / ".loop").mkdir(exist_ok=True)
 

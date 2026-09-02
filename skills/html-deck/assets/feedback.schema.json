@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "html-deck/feedback",
+  "title": "レビュー指摘 (inbox.jsonl の1行)",
+  "description": "ブラウザ上で選んだ DOM を #1 #2 ... として主語にし、自然言語の指示を1つ添えたもの。1行1件のJSONL。",
+  "type": "object",
+  "required": ["v", "id", "status", "slide", "instruction", "refs"],
+  "properties": {
+    "v": { "const": 1 },
+    "id": { "type": "string", "pattern": "^fb-\\d{3,}$" },
+    "status": { "enum": ["open", "applied", "rejected", "deferred"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "round": { "type": "integer", "description": "指摘された時点の .loop/round-N" },
+    "slide": {
+      "type": "object",
+      "required": ["id", "file"],
+      "properties": {
+        "id": { "type": "string" },
+        "file": { "type": "string", "pattern": "^slides/[\\w.\\-]+\\.html$" },
+        "title": { "type": ["string", "null"] }
+      }
+    },
+    "instruction": {
+      "type": "string",
+      "description": "ユーザーが書いた自然言語の指示。本文中の #1 #2 は refs の n に対応する。"
+    },
+    "instruction_expanded": {
+      "type": "string",
+      "description": "#N を実体の説明 (ファイル:行 セレクタ 「本文」) に置換した版。スキーマを知らない読み手でも意味が取れる。"
+    },
+    "refs": {
+      "type": "array",
+      "minItems": 1,
+      "description": "指示の主語。instruction の #N と n が対応する。",
+      "items": {
+        "oneOf": [{ "$ref": "#/$defs/elementRef" }, { "$ref": "#/$defs/regionRef" }]
+      }
+    }
+  },
+  "$defs": {
+    "rect": {
+      "type": "object",
+      "description": "1600x900 のキャンバス座標。ビューアの拡大縮小は入っていない。",
+      "required": ["x", "y", "w", "h"],
+      "properties": {
+        "x": { "type": "number" }, "y": { "type": "number" },
+        "w": { "type": "number" }, "h": { "type": "number" }
+      }
+    },
+    "anchorFields": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "array", "items": { "type": "integer" },
+          "description": "html を () として各階層の childElementIndex を並べたもの。review_anchor.py が行番号に変換する。"
+        },
+        "tag": { "type": "string" },
+        "id": { "type": ["string", "null"] },
+        "classes": { "type": "array", "items": { "type": "string" } },
+        "selector": { "type": "string", "description": "人間が読むための短縮セレクタ。一意性は保証しない。" },
+        "text_excerpt": { "type": "string", "description": "行番号が信用できないときの照合キー。" },
+        "file_line": {
+          "type": ["integer", "null"],
+          "description": "解決したソース行 (1始まり)。修正を重ねるとずれるので、疑わしいときは text_excerpt で grep する。"
+        },
+        "anchor_confidence": {
+          "enum": ["exact", "text", "none"],
+          "description": "exact = path とタグ/クラスが一致。text = 本文一致のみ。none = 特定できず、ファイル全体を読むこと。"
+        }
+      }
+    },
+    "elementRef": {
+      "type": "object",
+      "required": ["n", "kind", "path", "tag"],
+      "allOf": [{ "$ref": "#/$defs/anchorFields" }],
+      "properties": {
+        "n": { "type": "integer", "minimum": 1, "description": "instruction 中の #N" },
+        "kind": { "const": "element" },
+        "outer_head": { "type": "string", "description": "outerHTML の先頭 180 文字" },
+        "rect": { "$ref": "#/$defs/rect" },
+        "computed": {
+          "type": "object",
+          "description": "実測値。指定値ではない。",
+          "properties": {
+            "font_size_px": { "type": "number" },
+            "font_weight": { "type": "string" },
+            "color": { "type": "string" },
+            "background": { "type": "string" }
+          }
+        }
+      }
+    },
+    "regionRef": {
+      "type": "object",
+      "required": ["n", "kind", "rect", "anchor"],
+      "description": "まだ要素がない場所への指示。「ここに図が欲しい」など。",
+      "properties": {
+        "n": { "type": "integer", "minimum": 1 },
+        "kind": { "const": "region" },
+        "rect": { "$ref": "#/$defs/rect" },
+        "anchor": {
+          "allOf": [{ "$ref": "#/$defs/anchorFields" }],
+          "description": "この矩形を含む最小の要素。挿入先の親にあたる。",
+          "properties": { "relation": { "const": "contains" } }
+        },
+        "neighbors": {
+          "type": "array",
+          "description": "矩形の近くにある文字要素。位置関係を掴むため。",
+          "items": { "allOf": [{ "$ref": "#/$defs/anchorFields" }] }
+        }
+      }
+    }
+  }
+}

@@ -1,6 +1,13 @@
 .direnv/
 .DS_Store
 
-docs
-
+# 生成したデッキは追跡しない。ただし docs 直下を対象にしないと
+# git がディレクトリごと除外して、下の例外が効かない。
+docs/*
+!docs/design/
 !docs/HTMLスライド生成アーキテクチャ調査.md
+
+__pycache__/
+
+# テスト用
+work

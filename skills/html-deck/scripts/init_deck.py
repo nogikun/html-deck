@@ -24,6 +24,20 @@ from pathlib import Path
 SKILL_DIR = Path(__file__).resolve().parent.parent
 ASSETS = SKILL_DIR / "assets"
 
+SHELL_MARK = "/* __SHELL__ */"
+
+
+def viewer_html(title: str) -> str:
+    """配置するビューア。共通の殻 (shell.css) を埋め込んで1ファイルにする。
+
+    review_server.py が配信するのと同じ review.html を置く。file:// では
+    レビュー機能が自分で畳まれて、ただのビューアとして動く。
+    ビューアを2本持つと、同じ操作を2回書いて片方だけ直す事故が起きる。
+    """
+    html = (ASSETS / "review.html").read_text(encoding="utf-8")
+    shell = (ASSETS / "shell.css").read_text(encoding="utf-8")
+    return html.replace(SHELL_MARK, shell).replace("__DECK_TITLE__", title)
+
 DECK_MD = """# {title}
 
 <!-- この1枚が契約の正本。ここに書いていないことは全て各スライドの自由。
@@ -100,7 +114,7 @@ def refresh_viewer(deck: Path) -> int:
     title = re.sub(r"\s+", " ", m.group(1)).strip() if m else deck.name
     keep = SLIDES_RE.search(old)
 
-    html = (ASSETS / "viewer.html").read_text(encoding="utf-8").replace("__DECK_TITLE__", title)
+    html = viewer_html(title)
     if keep:
         html = SLIDES_RE.sub(lambda _: keep.group(0), html)
     else:
@@ -112,7 +126,17 @@ def refresh_viewer(deck: Path) -> int:
     return 0
 
 
+def _utf8_io() -> None:
+    """日本語しか出さないのに Windows の既定は cp932。パイプに繋ぐと落ちる。"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main() -> int:
+    _utf8_io()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("dir", type=Path)
     ap.add_argument("--title", default="Untitled deck")
@@ -138,8 +162,7 @@ def main() -> int:
 
     index = deck / "index.html"
     if args.force or not index.exists():
-        html = (ASSETS / "viewer.html").read_text(encoding="utf-8").replace("__DECK_TITLE__", args.title)
-        index.write_text(html, encoding="utf-8")
+        index.write_text(viewer_html(args.title), encoding="utf-8")
         created.append(index)
 
     md = deck / "deck.md"

@@ -1,11 +1,13 @@
 # HTML Deck Skill
 
-メモ、記事、調査資料、議事録、URL、口頭の依頼などをもとに、**HTML 形式のスライド資料を作り、検査と改善を繰り返して仕上げるための Codex スキル**です。
+メモ、記事、調査資料、議事録、URL、口頭の依頼などをもとに、**HTML 形式のスライド資料を作り、検査と改善を繰り返して仕上げるための Skills** です。
 
 単にスライドを HTML で出力するだけではなく、固定キャンバス上で文字サイズ・はみ出し・コントラスト・情報量などを実測し、スクリーンショットと批評を使って読みやすさを改善します。納品用には、同じレイアウトを保った PDF も出力できます。
 
 ## セットアップ
+
 以下のコマンドを実行し、ターミナル上で適用先を指定
+
 ```bash
 npx skills add nogikun/gen-slide-skills
 ```
@@ -15,36 +17,38 @@ npx skills add nogikun/gen-slide-skills
 - 1600 × 900 の固定キャンバスで、各スライドを独立した HTML として作成
 - `deck.md` にゴール、対象者、結論、制約、構成をまとめ、制作の判断基準を固定
 - 共有の `theme.css` で色・書体・文字サイズを統一
-- ブラウザで操作できる `index.html` ビューアを自動生成・同期
+- ブラウザで操作できる `index.html` ビューアを自動生成・同期（レビュー画面と同じ1ファイル）
 - ヘッドレス Chrome による実測検査
   - 要素のはみ出し、切れ、文字サイズ、コントラスト、色の逸脱
   - 文字量、文字の占有率、見出しと本文の階層、図中の文字・線の実効サイズ
   - ビューア経由でも共有 CSS が正しく読み込まれるか
 - 検査結果、各スライドのスクリーンショット、コンタクトシートを `.loop/round-N/` に保存
 - draw.io 図をスライド内へ貼り込める SVG に変換
-- 全スライドを 1 本の固定レイアウト PDF に出力
+- 全スライドを 1 本の固定レイアウト PDF に出力（指定書体が実際に使われたかを検査）
+- デッキ一式を**外部参照ゼロの 1 枚 HTML** に畳んで、そのまま送れる形にする
 - **レビューモード**: ブラウザ上でスライドの要素をクリックすると、入力欄に `#1` `#2` … という**ブロック**が入る。それを主語に自然言語で直しを依頼できる。指摘はソースの行番号まで解決された JSON になり、AI エージェントがそのまま読める。画面は白モード / ナイトモードの2系統
 - **情報量の統制**: 枚ごとの字数だけでなく、**図のある枚の割合 (4割以上) と文字だけの枚の連続 (2枚まで)** を並びとして検査する。どの1枚も合格のままデッキ全体が文字の壁になるのを止める
 - **最初にインタビューする**: 「見終わった人がどういう状態になっていてほしいか」「話しながら見せるのか、置いて読ませるのか」から始める。場面がそのまま1枚の情報量の予算になる
 
 ## リポジトリ構成
 
-| パス | 役割 |
-| --- | --- |
-| `skills/html-deck/SKILL.md` | Codex に渡す制作手順と品質基準 |
-| `skills/html-deck/assets/` | スライド雛形、共有テーマ、ビューア、検査しきい値 |
-| `skills/html-deck/scripts/init_deck.py` | 新しいデッキの骨格を作成 |
-| `skills/html-deck/scripts/check_deck.py` | デッキを実測し、検査結果と画像を出力 |
-| `skills/html-deck/scripts/export_pdf.py` | スライドを固定レイアウト PDF に結合 |
-| `skills/html-deck/scripts/drawio_svg.py` | `.drawio` を貼り込み用 SVG に変換 |
-| `skills/html-deck/scripts/review_server.py` | レビューモードのサーバ。DOM 指定を JSON に落とす |
-| `skills/html-deck/scripts/review_wait.py` | 指摘が届くまで待機（送信を検知する経路） |
-| `skills/html-deck/scripts/review_resolve.py` | 指摘の適用/却下を記録し、`deck.md` に確定判断を積む |
-| `skills/html-deck/references/` | レイアウト、図、反復改善のガイド |
-| `skills/html-deck/agents/` | スライド単位・デッキ全体の批評用指示 |
-| `skills/html-deck/assets/review.html` | レビュー用ビューア（デッキには配置されない） |
-| `docs/design/` | 設計ドキュメント |
-| `docs/` | このスキルで作成したデッキの例 |
+| パス                                           | 役割                                                  |
+| ---------------------------------------------- | ----------------------------------------------------- |
+| `skills/html-deck/SKILL.md`                  | Codex に渡す制作手順と品質基準                        |
+| `skills/html-deck/assets/`                   | スライド雛形、共有テーマ、ビューア、検査しきい値      |
+| `skills/html-deck/scripts/init_deck.py`      | 新しいデッキの骨格を作成                              |
+| `skills/html-deck/scripts/check_deck.py`     | デッキを実測し、検査結果と画像を出力                  |
+| `skills/html-deck/scripts/export_pdf.py`     | スライドを固定レイアウト PDF に結合                   |
+| `skills/html-deck/scripts/drawio_svg.py`     | `.drawio` を貼り込み用 SVG に変換                   |
+| `skills/html-deck/scripts/review_server.py`  | レビューモードのサーバ。DOM 指定を JSON に落とす      |
+| `skills/html-deck/scripts/review_wait.py`    | 指摘が届くまで待機（送信を検知する経路）              |
+| `skills/html-deck/scripts/review_thread.py`  | 指摘スレッドの読み書き。確定判断を `deck.md` に積む   |
+| `skills/html-deck/scripts/bundle_deck.py`    | デッキ一式を1枚の HTML に畳む                         |
+| `skills/html-deck/references/`               | レイアウト、図、反復改善のガイド                      |
+| `skills/html-deck/agents/`                   | スライド単位・デッキ全体の批評用指示                  |
+| `skills/html-deck/assets/review.html`        | 唯一のビューア。`index.html` としても配置される       |
+| `docs/design/`                               | 設計ドキュメント                                      |
+| `docs/`                                      | このスキルで作成したデッキの例                        |
 
 ## 必要なもの
 
@@ -155,17 +159,19 @@ python3 skills/html-deck/scripts/review_server.py ./output/product-proposal-deck
 現れた順で振り直されるので、途中で消しても対応が崩れません。`T` で白モードと
 ナイトモードを切り替えられます。
 
-送信内容は `<deck>/.loop/feedback/inbox.jsonl` に保存されます。1件が1行の JSON で、
-各指定は**ファイル名と行番号**まで解決されているため、Claude Code などの AI エージェントが
-そのまま読んで修正できます。処理された指摘は `resolved.jsonl` に記録され、
-ビューアを開き直すとピンの色で反映状況が分かります。
+送信内容は `<deck>/.loop/feedback/threads/fb-NNN.jsonl` に、1指摘 = 1スレッドとして
+保存されます。各指定は**ファイル名と行番号**まで解決されているため、Claude Code などの
+AI エージェントがそのまま読んで修正できます。会話も状態もこのファイルが正本で、
+ピンの色にもそのまま反映されます。**確定するのはユーザーがマージしたときだけ**で、
+エージェントは「直した」までしか進められません。
 
 上のコマンドは手動で実行する場合のものです。**スキル経由で使う場合、起動から指摘の取り込み、
 修正、記録までは AI エージェント側が行います。** ユーザーは渡された URL で指摘を出すだけです。
 エージェントは `review_wait.py` を併走させ、送信された時点で気づきます。
 
 > レビューモードには**ローカルサーバーが必要**です。`file://` で開いた場合、ブラウザの制約に
-> よりページ内の要素を選択できません。閲覧するだけなら `index.html` を直接開いてください。
+> よりページ内の要素を選択できません。`index.html` を直接開くとレビュー機能は自動的に
+> 畳まれ、ただのビューアとして動きます。
 
 ### 6. PDF を出力する
 
@@ -178,6 +184,18 @@ uv run skills/html-deck/scripts/export_pdf.py ./output/product-proposal-deck \
 
 PDF は閲覧環境のフォント差異による崩れを避けるための納品形式です。出力後は必ず開き、文字化け・欠落・切れがないかを確認してください。
 
+`theme.css` で指定した書体がこの環境に無いと、代替書体で描かれた結果がそのまま固定されます。
+それでは見た目を固定して渡したことにならないため、**実際に描画に使われた書体を検査して、
+落ちていれば書き出しません**。承知のうえで出すなら `--allow-font-fallback` を付けます。
+
+人に送るだけなら、1枚の HTML に畳むほうが手軽です。外部参照が無いのでそのまま添付できます。
+
+```bash
+python skills/html-deck/scripts/bundle_deck.py ./output/product-proposal-deck
+```
+
+どちらもレビュー画面のツールバーのボタンから実行できます（サーバー稼働中のみ）。
+
 ## 制作の考え方
 
 品質の中心は、最初の生成結果ではなく改善の反復です。基本の流れは次のとおりです。
@@ -189,7 +207,7 @@ PDF は閲覧環境のフォント差異による崩れを避けるための納�
   → 実測検査（block を解消）
   → スライド単位・デッキ全体の批評
   → 局所修正と再検査
-  → 目視確認・PDF 出力
+  → 目視確認 → 1枚 HTML / PDF の書き出し
 ```
 
 `theme.css` と検査しきい値は、反復の途中で安易に変えません。複数のスライドに同じ指摘が出た場合だけ、共通設定を見直します。詳細な品質契約と終了条件は [`skills/html-deck/SKILL.md`](skills/html-deck/SKILL.md) および `references/` を参照してください。

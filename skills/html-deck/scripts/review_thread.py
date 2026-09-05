@@ -185,16 +185,6 @@ def cmd_list(root: Path, args) -> int:
     return 0
 
 
-def cmd_show(root: Path, args) -> int:
-    events = T.read(root, args.id)
-    if not events:
-        print(f"error: {args.id} がない", file=sys.stderr)
-        return 2
-    for ev in events:
-        print(_fmt_event(ev))
-    return 0
-
-
 def cmd_post(root: Path, args) -> int:
     changes = []
     for raw in args.change or []:
@@ -311,20 +301,14 @@ def cmd_brief(root: Path, args) -> int:
     return 0
 
 
-def cmd_ack(root: Path, args) -> int:
-    T.ack(root, args.id)
-    print(f"ack: {args.id}")
-    return 0
-
-
 def main() -> int:
+    adapter.utf8_io()
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("deck", type=Path)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("list"); p.add_argument("--state", choices=T.STATES); p.set_defaults(fn=cmd_list)
-    p = sub.add_parser("show"); p.add_argument("id"); p.set_defaults(fn=cmd_show)
     p = sub.add_parser("context"); p.add_argument("id"); p.set_defaults(fn=cmd_context)
 
     p = sub.add_parser("post")
@@ -360,7 +344,6 @@ def main() -> int:
     p.set_defaults(fn=cmd_notify)
 
     p = sub.add_parser("brief"); p.add_argument("--slide"); p.set_defaults(fn=cmd_brief)
-    p = sub.add_parser("ack"); p.add_argument("id"); p.set_defaults(fn=cmd_ack)
 
     args = ap.parse_args()
     root = args.deck.resolve()

@@ -10,9 +10,7 @@
   script-src 'none' のままでよい。ピッカーは全部親側で動く。
 
 出すもの:
-  <deck>/.loop/feedback/inbox.jsonl    起票の索引 (このサーバが追記)
-  <deck>/.loop/feedback/threads/*.jsonl 1指摘 = 1スレッドの会話ログ
-  <deck>/.loop/feedback/resolved.jsonl  確定の記録 (マージ / 却下 / 保留)
+  <deck>/.loop/feedback/threads/*.jsonl 1指摘 = 1スレッドの会話ログ (これが唯一の正本)
 
 受信するたび標準出力に1行出す。バックグラウンド起動しておけば、
 エージェントはその行で「ユーザーが指摘を出した」ことに気づける。
@@ -28,7 +26,6 @@ import subprocess
 import sys
 import threading
 import webbrowser
-from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -40,6 +37,7 @@ import review_threads as threads  # noqa: E402
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 REVIEW_HTML = SKILL_DIR / "assets" / "review.html"
+SHELL_CSS = SKILL_DIR / "assets" / "shell.css"
 
 _lock = threading.Lock()
 
@@ -99,11 +97,18 @@ def _expand(instruction: str, refs: list[dict], slide_file: str) -> str:
     return out
 
 
-def _next_id(inbox: Path) -> str:
-    n = 0
-    if inbox.is_file():
-        n = sum(1 for line in inbox.read_text(encoding="utf-8").splitlines() if line.strip())
-    return f"fb-{n + 1:03d}"
+ID_RE = re.compile(r"fb-(\d+)$")
+
+
+def next_id(root: Path) -> str:
+    """既存の最大番号 + 1。本数で数えない。
+
+    スレッドが1本消えると本数が減り、生きている id をもう一度発番してしまう。
+    `threads.start()` は既存のスレッドがあれば追記せずそれを返すので、
+    衝突するとユーザーの新しい指摘が黙って消える。
+    """
+    nums = [int(m.group(1)) for t in threads.ids(root) if (m := ID_RE.fullmatch(t))]
+    return f"fb-{max(nums, default=0) + 1:03d}"
 
 
 def create_feedback(root: Path, payload: dict) -> dict:
@@ -112,15 +117,10 @@ def create_feedback(root: Path, payload: dict) -> dict:
         raise ValueError(f"不正な slide_file: {slide_file!r}")
 
     refs = [_resolve_ref(root, slide_file, r) for r in payload.get("refs", [])]
-    fdir = adapter.feedback_dir(root)
-    inbox = fdir / "inbox.jsonl"
 
     with _lock:
         item = {
-            "v": 1,
-            "id": _next_id(inbox),
-            "status": "open",
-            "created_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+            "id": next_id(root),
             "round": adapter.current_round(root),
             "slide": {
                 "id": payload.get("slide_id"),
@@ -131,9 +131,7 @@ def create_feedback(root: Path, payload: dict) -> dict:
             "refs": refs,
         }
         item["instruction_expanded"] = _expand(item["instruction"], refs, slide_file)
-        with inbox.open("a", encoding="utf-8") as fp:
-            fp.write(json.dumps(item, ensure_ascii=False) + "\n")
-    threads.start(root, item)
+        threads.start(root, item)
     return item
 
 
@@ -166,11 +164,9 @@ def run_full_check(root: Path, tid: str) -> tuple[dict | None, str]:
     """マージ前の full 検査。落ちても人の合意を止めない (理由を記録して通す)。"""
     script = Path(__file__).resolve().parent / "review_check.py"
     try:
-        proc = subprocess.run(
-            [sys.executable, str(script), str(root), "--thread", tid, "--level", "full"],
-            capture_output=True, text=True, timeout=300)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        return None, f"検査を実行できなかった: {e}"
+        proc = adapter.run_script(script, root, "--thread", tid, "--level", "full", timeout=300)
+    except Exception as e:      # noqa: BLE001 - 検査が回らない理由は握りつぶさず記録して通す
+        return None, f"検査を実行できなかった: {type(e).__name__}: {e}"
     path = adapter.feedback_dir(root) / "checks" / f"{tid}.json"
     if proc.returncode != 0 or not path.is_file():
         tail = [l for l in (proc.stderr or proc.stdout or "").splitlines() if l.strip()]
@@ -180,6 +176,27 @@ def run_full_check(root: Path, tid: str) -> tuple[dict | None, str]:
     except json.JSONDecodeError as e:
         return None, f"検査結果を読めなかった: {e}"
     return {k: rec.get(k) for k in ("at", "level", "slide", "block", "review", "info", "delta", "top")}, ""
+
+
+def run_export(root: Path, script: str, *args: str) -> dict:
+    """書き出し系スクリプトをそのまま叩く。ロジックはサーバに持たせない。
+
+    ブラウザから起動できるのはサーバが動いているときだけ。デッキ同梱の
+    index.html を file:// で開いた場合は、そもそも押すボタンが出ない。
+    """
+    here = Path(__file__).resolve().parent
+    try:
+        proc = adapter.run_script(here / script, root, *args, timeout=600)
+    except Exception as e:      # noqa: BLE001 - 起動できない理由は全部ここでボタンに返す
+        return {"ok": False, "error": f"{script} を実行できなかった: {type(e).__name__}: {e}"}
+    out = "\n".join(l for l in (proc.stdout or "").splitlines() if l.strip())
+    err = "\n".join(l for l in (proc.stderr or "").splitlines() if l.strip())
+    if proc.returncode != 0:
+        return {"ok": False, "error": (err or out or "理由不明")[-600:]}
+    # 成功でも警告は出る (畳めなかった参照など)。捨てるとブラウザ側からは
+    # 何も無かったように見える。stderr を先に置いて、最後の行が結果になるようにする
+    # (ブラウザは最後の1行をトーストに出す)。
+    return {"ok": True, "log": "\n".join(x for x in (err, out) if x)[-600:]}
 
 
 def set_state(root: Path, payload: dict) -> dict:
@@ -195,41 +212,6 @@ def set_state(root: Path, payload: dict) -> dict:
         return threads.post(root, tid, role="user", kind="close", state="closed",
                             text=(payload.get("text") or "取り下げ").strip())
     raise ValueError(f"ここで指定できるのは merged / closed だけ: {state!r}")
-
-
-def read_all(root: Path) -> list[dict]:
-    """inbox に resolved の status を重ねて返す。ビューアのピン表示用。"""
-    fdir = adapter.feedback_dir(root)
-    items: list[dict] = []
-    inbox = fdir / "inbox.jsonl"
-    if inbox.is_file():
-        for line in inbox.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                try:
-                    items.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass
-    resolved: dict[str, dict] = {}
-    rpath = fdir / "resolved.jsonl"
-    if rpath.is_file():
-        for line in rpath.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                try:
-                    rec = json.loads(line)
-                    resolved[rec.get("id")] = rec
-                except json.JSONDecodeError:
-                    pass
-    for it in items:
-        rec = resolved.get(it["id"])
-        if rec:
-            it["status"] = rec.get("status", it["status"])
-            it["resolution"] = rec
-        # スレッドがあればそちらが正本 (会話の途中でも状態が動く)
-        ev = threads.read(root, it["id"])
-        if ev:
-            it["status"] = threads.state_of(ev)
-            it["events"] = len(ev)
-    return items
 
 
 # ---------------------------------------------------------------- HTTP
@@ -273,6 +255,8 @@ def make_handler(root: Path, token: str):
 
             if u.path in ("/__review", "/__review/"):
                 html = REVIEW_HTML.read_text(encoding="utf-8")
+                # 共通の殻はビューア (index.html) と同じものを埋め込む
+                html = html.replace("/* __SHELL__ */", SHELL_CSS.read_text(encoding="utf-8"))
                 html = html.replace("__DECK_TITLE__", adapter.deck_title(root))
                 body = html.encode("utf-8")
                 self.send_response(200)
@@ -289,9 +273,6 @@ def make_handler(root: Path, token: str):
                     "round": adapter.current_round(root),
                     "slides": adapter.slides(root),
                 })
-
-            if u.path == "/__review/api/feedback":
-                return self._json({"items": read_all(root)})
 
             if u.path == "/__review/api/threads":
                 rev = threads.revision(root)
@@ -319,7 +300,7 @@ def make_handler(root: Path, token: str):
             u = urlparse(self.path)
             q = parse_qs(u.query)
             if u.path not in ("/__review/api/feedback", "/__review/api/reply",
-                              "/__review/api/state"):
+                              "/__review/api/state", "/__review/api/export"):
                 return self._json({"error": "not found"}, 404)
             if not self._authed(q):
                 return self._json({"error": "token が違います"}, 403)
@@ -342,6 +323,18 @@ def make_handler(root: Path, token: str):
                 print(f'[feedback] {item["id"]} slide={item["slide"]["id"]} refs={n} :: {head}',
                       flush=True)
                 return self._json({"ok": True, "item": item})
+
+            if u.path == "/__review/api/export":
+                kind = payload.get("kind")
+                if kind == "pdf":
+                    res = run_export(root, "export_pdf.py",
+                                     *(["--allow-font-fallback"] if payload.get("force") else []))
+                elif kind == "html":
+                    res = run_export(root, "bundle_deck.py")
+                else:
+                    return self._json({"error": f"pdf か html: {kind!r}"}, 400)
+                print(f'[export] {kind} {"ok" if res["ok"] else "失敗"}', flush=True)
+                return self._json(res, 200 if res["ok"] else 409)
 
             if u.path == "/__review/api/reply":
                 try:
@@ -369,6 +362,7 @@ def make_handler(root: Path, token: str):
 
 
 def main() -> int:
+    adapter.utf8_io()
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("deck", type=Path)
@@ -388,7 +382,7 @@ def main() -> int:
 
     print(f"deck   : {root}")
     print(f"review : {url}")
-    print(f"inbox  : {adapter.feedback_dir(root) / 'inbox.jsonl'}")
+    print(f"threads: {adapter.feedback_dir(root) / 'threads'}")
     print("使い方 : E でレビューモード。要素をクリックすると入力欄に #1 のブロックが入る。"
           "空白をドラッグすると領域指定。P でピンだけ隠す。T で白/ナイト切替。"
           "Cmd/Ctrl+Enter で送信。E で閉じると枠は全部消える。", flush=True)

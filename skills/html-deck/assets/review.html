@@ -3,7 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>レビュー — __DECK_TITLE__</title>
+  <!-- サーバ配信 (レビュー) とデッキ同梱 (file://) の両方でこの1枚を使う。
+       connect-src 'self' はレビュー時の API 用。file:// では叩かない。 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'unsafe-inline'; frame-src 'self' data:; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'">
+  <title>__DECK_TITLE__</title>
   <script>
     // 描画前にテーマを確定させる。あとで当てると白い画面が一瞬出る。
     try {
@@ -12,151 +15,29 @@
     } catch (e) { /* localStorage が無い環境では system 追従のまま */ }
   </script>
   <style>
-    /* =========================================================================
-       白モード / ナイトモード。色は必ず :root に全部定義してから、
-       dark で「同じキーを上書き」する。片方にしか無い色を作らない。
-       ここは Office (PowerPoint) の Fluent グレーに寄せてある。
-       ====================================================================== */
-    :root {
-      color-scheme: light;
-      --app:        #f3f2f1;   /* 編集領域の外側。スライドを浮かせる地の色 */
-      --chrome:     #ffffff;   /* ツールバー・ペイン */
-      --chrome-2:   #faf9f8;   /* 一段沈める面 */
-      --card:       #ffffff;
-      --line:       #e1dfdd;
-      --line-2:     #c8c6c4;
-      --text:       #201f1e;
-      --text-2:     #605e5c;
-      --text-3:     #8a8886;
-      --brand:      #c43e1c;   /* 赤橙。S のマークに使うアプリの身元の色 */
-      --brand-ink:  #ffffff;
-      --brand-soft: #fdf1ee;
-      --accent:     #0f6cbd;   /* 選択・参照。操作の色 */
-      --accent-soft:#eff6fc;
-      --hot:        #a4620a;   /* レビュー中 */
-      --hot-soft:   #fdf6e7;
-      --ok:         #0f7b3f;
-      --ok-soft:    #eff8f2;
-      --shadow-1:   0 1.6px 3.6px rgba(0,0,0,.10), 0 .3px .9px rgba(0,0,0,.07);
-      --shadow-2:   0 12px 28px rgba(0,0,0,.16), 0 2px 6px rgba(0,0,0,.08);
-      --ui: "Segoe UI", "Yu Gothic UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN",
-            "Noto Sans JP", system-ui, sans-serif;
-      --mono: "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
-    }
-    :root[data-theme="dark"] {
-      color-scheme: dark;
-      --app:        #161514;
-      --chrome:     #292827;
-      --chrome-2:   #1f1e1d;
-      --card:       #333231;
-      --line:       #3d3c3b;
-      --line-2:     #565453;
-      --text:       #f3f2f1;
-      --text-2:     #c8c6c4;
-      --text-3:     #979593;
-      --brand:      #ef7a5c;
-      --brand-ink:  #2b1006;
-      --brand-soft: #3a221b;
-      --accent:     #62abf5;
-      --accent-soft:#20303f;
-      --hot:        #f0b455;
-      --hot-soft:   #3a2d17;
-      --ok:         #5ec98a;
-      --ok-soft:    #1c3327;
-      --shadow-1:   0 1.6px 3.6px rgba(0,0,0,.35), 0 .3px .9px rgba(0,0,0,.30);
-      --shadow-2:   0 16px 40px rgba(0,0,0,.50), 0 2px 8px rgba(0,0,0,.35);
-    }
-    @media (prefers-color-scheme: dark) {
-      :root:not([data-theme="light"]) {
-        color-scheme: dark;
-        --app:        #161514;
-        --chrome:     #292827;
-        --chrome-2:   #1f1e1d;
-        --card:       #333231;
-        --line:       #3d3c3b;
-        --line-2:     #565453;
-        --text:       #f3f2f1;
-        --text-2:     #c8c6c4;
-        --text-3:     #979593;
-        --brand:      #ef7a5c;
-        --brand-ink:  #2b1006;
-        --brand-soft: #3a221b;
-        --accent:     #62abf5;
-        --accent-soft:#20303f;
-        --hot:        #f0b455;
-        --hot-soft:   #3a2d17;
-        --ok:         #5ec98a;
-        --ok-soft:    #1c3327;
-        --shadow-1:   0 1.6px 3.6px rgba(0,0,0,.35), 0 .3px .9px rgba(0,0,0,.30);
-        --shadow-2:   0 16px 40px rgba(0,0,0,.50), 0 2px 8px rgba(0,0,0,.35);
-      }
-    }
+    /* assets/shell.css がここに差し込まれる (init_deck.py / review_server.py)。
+       以下はレビュー画面にしか無い部品だけ。 */
+    /* __SHELL__ */
 
-    * { box-sizing: border-box; }
-    html, body {
-      width: 100%; height: 100%; margin: 0; overflow: hidden;
-      background: var(--app); color: var(--text);
-      font-family: var(--ui); font-size: 13px;
-      -webkit-font-smoothing: antialiased;
-    }
-    body { display: grid; grid-template-rows: 48px 1fr 28px; min-width: 0; }
-    button { font-family: inherit; }
-    ::selection { background: color-mix(in srgb, var(--accent) 26%, transparent); }
-
-    /* ------------------------------------------------------------ ツールバー */
-    .toolbar {
-      display: flex; align-items: center; gap: 10px; padding: 0 12px 0 14px;
-      background: var(--chrome); border-bottom: 1px solid var(--line);
-      box-shadow: var(--shadow-1); z-index: 4; min-width: 0;
-    }
-    .logo {
-      width: 22px; height: 22px; flex: none; border-radius: 3px;
-      background: var(--brand); color: var(--brand-ink);
-      display: grid; place-items: center; font: 700 13px/1 var(--ui);
-    }
     .deck { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden;
             text-overflow: ellipsis; max-width: 34vw; }
-    .spacer { flex: 1; min-width: 0; }
+    .progress { width: min(22vw, 300px); height: 3px; flex: none; border-radius: 2px;
+                background: var(--line); overflow: hidden; }
+    .progress > span { display: block; height: 100%; background: var(--accent);
+                       transition: width .25s ease; }
     .tally { font-size: 12px; color: var(--text-2); white-space: nowrap; }
     .tally b { color: var(--hot); font-weight: 600; }
-
-    .btn {
-      display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px;
-      border: 1px solid transparent; border-radius: 4px; background: none;
-      color: var(--text); font-size: 12.5px; cursor: pointer; white-space: nowrap;
-    }
-    .btn:hover { background: var(--chrome-2); border-color: var(--line); }
-    .btn:active { background: var(--line); }
-    .btn.icon { width: 30px; padding: 0; justify-content: center; font-size: 14px; }
     .btn[aria-pressed="true"] {
       background: var(--hot-soft); border-color: color-mix(in srgb, var(--hot) 45%, transparent);
       color: var(--hot); font-weight: 600;
     }
     .btn .kbd { color: var(--text-3); font: 11px/1 var(--mono); }
     .btn[aria-pressed="true"] .kbd { color: inherit; opacity: .7; }
-    .sep { width: 1px; height: 22px; background: var(--line); flex: none; }
 
     /* ------------------------------------------------------- 本体 (舞台+ペイン) */
     .work { display: grid; grid-template-columns: 1fr 0; min-height: 0; min-width: 0; }
     body[data-review="true"] .work { grid-template-columns: 1fr 372px; }
-
-    .stage { position: relative; min-height: 0; min-width: 0; overflow: hidden; background: var(--app); }
-    .frame {
-      position: absolute; left: 50%; top: 50%; width: 1600px; height: 900px;
-      transform: translate(-50%, -50%) scale(var(--deck-scale, 1)); transform-origin: center;
-      background: #fff; box-shadow: var(--shadow-2);
-      outline: 1px solid var(--line-2); outline-offset: 0;
-    }
     .frame[data-review="true"] { outline: 2px solid var(--hot); }
-    iframe { width: 1600px; height: 900px; border: 0; display: block; background: #fff; }
-    .banner {
-      position: absolute; left: 50%; top: 18px; transform: translateX(-50%); z-index: 5;
-      max-width: 70%; padding: 10px 14px; border-radius: 4px; display: none; white-space: pre-wrap;
-      background: var(--hot-soft); color: var(--hot); box-shadow: var(--shadow-1);
-      border: 1px solid color-mix(in srgb, var(--hot) 40%, transparent);
-      font: 12px/1.6 var(--ui);
-    }
-    .banner[data-show="true"] { display: block; }
 
     /* --------------------------------------------------------------- ペイン */
     .pane {
@@ -323,15 +204,6 @@
                  padding-left: 8px; border-left: 2px solid var(--line-2); }
 
     /* ----------------------------------------------------------- ステータスバー */
-    .status {
-      display: flex; align-items: center; gap: 10px; padding: 0 8px 0 14px;
-      background: var(--chrome); border-top: 1px solid var(--line);
-      font-size: 11.5px; color: var(--text-2); min-width: 0;
-    }
-    .status .slidetitle { min-width: 0; white-space: nowrap; overflow: hidden;
-                          text-overflow: ellipsis; color: var(--text-2); }
-    .status .counter { font: 11px/1 var(--mono); color: var(--text-2); flex: none; }
-    .status .zoom { font: 11px/1 var(--mono); color: var(--text-3); flex: none; }
     /* この枚に指摘があることは、キャンバスではなくここで知らせる。
        スライドの上に描いてよいのはレビュー中だけ。 */
     .status .pins { display: none; align-items: center; gap: 5px; flex: none;
@@ -342,12 +214,6 @@
     .status .pins[data-clickable="true"] { cursor: pointer; }
     .status .pins[data-hidden="true"] { opacity: .45; }
     .status .pins[data-open="true"] .dot { background: var(--hot); }
-    .sbtn {
-      width: 22px; height: 20px; border: 0; border-radius: 3px; background: none; flex: none;
-      color: var(--text-2); cursor: pointer; font-size: 12px; line-height: 1;
-    }
-    .sbtn:hover:not(:disabled) { background: var(--chrome-2); color: var(--text); }
-    .sbtn:disabled { opacity: .3; cursor: default; }
 
     .toast {
       position: fixed; left: 50%; bottom: 46px; transform: translateX(-50%) translateY(6px);
@@ -379,6 +245,10 @@
     </button>
     <div class="spacer"></div>
     <div class="tally" id="tally"></div>
+    <div class="progress" aria-hidden="true"><span id="progress"></span></div>
+    <div class="sep"></div>
+    <button class="btn" id="pdfBtn" type="button" title="16:9 の固定PDFを書き出す">PDF</button>
+    <button class="btn" id="htmlBtn" type="button" title="1枚のHTMLに畳んで書き出す">1枚HTML</button>
     <div class="sep"></div>
     <button class="btn icon" id="themeBtn" type="button" title="表示テーマ (T)" aria-label="表示テーマ"></button>
   </header>
@@ -441,6 +311,25 @@
   <div class="toast" id="toast"></div>
 
 <script>
+/* このファイルは3通りの配られ方をする。中身は同じで、スライドの出どころだけが違う。
+
+     review_server.py が配信   → /__review/api/slides から引く。レビュー機能あり
+     デッキ同梱の index.html   → 下の静的な配列から引く (check_deck.py が書き換える)
+     bundle_deck.py の1枚もの  → 同じ配列に HTML 本文が入っていて srcdoc で流し込む
+
+   レビュー機能が http でしか動かないのは、file:// だと親から iframe の
+   contentDocument に到達できないため。ファイルを分けるのではなく、
+   到達できない環境では機能を畳む。 */
+const SERVED = location.protocol === "http:" || location.protocol === "https:";
+const BUNDLED = false;   // bundle_deck.py が true にして、下の配列に本文を入れる
+
+// このブロックは check_deck.py が slides/*.html の <title> から自動再生成する。
+// 手で書き換えても次回の検査で上書きされる。順序はファイル名順。
+// <slides>
+const slides0 = [
+];
+// </slides>
+
 const TOKEN = new URLSearchParams(location.search).get("t") || "";
 const $ = (id) => document.getElementById(id);
 const frame = $("slide"), frameShell = $("frameShell"), stage = document.querySelector(".stage");
@@ -778,6 +667,44 @@ function toast(msg, kind) {
   clearTimeout(toast._id); toast._id = setTimeout(() => { t.dataset.show = "false"; }, 3000);
 }
 
+/* 書き出しはサーバ側のスクリプト (export_pdf.py / bundle_deck.py) をそのまま叩く。
+   ブラウザ側にロジックを持たせると、CLI と挙動が割れて片方だけ直す事故になる。 */
+let pdfFallbackOK = false;   // 書体が無いと言われた直後の2度押しだけ許す
+
+async function exportAs(kind, btn) {
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = "書き出し中…";
+  try {
+    // 読んだら必ず落とす。残すと、間に別の操作を挟んだ後の PDF まで
+    // 「承知のうえ」扱いになる。許すのは失敗の直後に押し直したときだけ。
+    const force = kind === "pdf" && pdfFallbackOK;
+    pdfFallbackOK = false;
+    const r = await api("/__review/api/export", {
+      method: "POST", body: JSON.stringify({ kind, force }),
+    });
+    const body = await r.json();
+    if (r.ok) {
+      // 成功でも警告は出る (畳めなかった参照など)。黙って成功と言わない。
+      const warned = /(^|\n)warning:/.test(body.log || "");
+      if (warned) console.warn(`[export ${kind}]\n` + body.log);
+      const last = body.log.split(/\r?\n/).filter(Boolean).slice(-1)[0] || "書き出した";
+      toast(last + (warned ? " — 警告あり (コンソール)" : ""), warned ? "warn" : "");
+    } else if (kind === "pdf" && /allow-font-fallback/.test(body.error || "")) {
+      pdfFallbackOK = true;
+      toast("指定の書体がこの環境に無い。もう一度押すと代替書体のまま書き出す", "warn");
+    } else {
+      // トーストは1行しか出せない。原因の全文はコンソールに残す。
+      console.error(`[export ${kind}]\n` + (body.error || "(理由不明)"));
+      toast("書き出しに失敗: " + (body.error || "").split(/\r?\n/)[0] + " — 詳細はコンソール", "warn");
+    }
+  } catch (e) {
+    console.error(`[export ${kind}]`, e);
+    toast("書き出しに失敗: " + e.message, "warn");
+  } finally {
+    btn.disabled = false; btn.textContent = label;
+  }
+}
+
 const THEME_ICON = { light: "☀", dark: "☾" };
 function currentTheme() {
   return document.documentElement.dataset.theme
@@ -798,14 +725,24 @@ function setTheme(t) {
 
 async function boot() {
   paintThemeBtn();
-  const meta = await (await api("/__review/api/slides")).json();
-  slides = meta.slides || [];
-  $("deckName").textContent = meta.deck || "deck";
-  document.title = `レビュー — ${meta.deck || "deck"}`;
-  await reloadItems();
-  await pollThreads(true);
-  startPolling();
-  if (!slides.length) { banner("slides/*.html が見つかりません"); return; }
+  if (SERVED) {
+    const meta = await (await api("/__review/api/slides")).json();
+    slides = meta.slides || [];
+    $("deckName").textContent = meta.deck || "deck";
+    document.title = `レビュー — ${meta.deck || "deck"}`;
+    await pollThreads(true);
+    startPolling();
+  } else {
+    // 静的な配列は [参照, タイトル] の2要素。API と同じ形に均してから使う。
+    slides = slides0.map(([ref, title]) => ({
+      id: BUNDLED ? title : ref.split("/").pop().replace(/\.html$/, ""),
+      file: ref, title,
+    }));
+    // レビューは畳む。押せないボタンを出しておくほうが不親切。
+    // レビューも書き出しもサーバが要る。押せないボタンを出しておくほうが不親切。
+    for (const id of ["modeBtn", "pins", "pdfBtn", "htmlBtn"]) $(id).hidden = true;
+  }
+  if (!slides.length) { banner("スライドがありません"); return; }
   render();
 }
 
@@ -824,7 +761,7 @@ async function pollThreads(force) {
     if (!body.changed) return;
     rev = body.rev;
     logs = new Map((body.threads || []).map((th) => [th.id, th.log || []]));
-    await reloadItems();
+    rebuildItems();
     if (openId && !logs.has(openId)) openId = null;
     renderPane();
     paint();
@@ -862,8 +799,19 @@ function unreadOf(id) {
   return l.filter((e) => e.seq > seen && e.role === "ai").length;
 }
 
-async function reloadItems() {
-  try { items = (await (await api("/__review/api/feedback")).json()).items || []; } catch { items = []; }
+/* ピンと一覧が見ているもの。起票イベント (seq 1) と最後の state から作る。
+   スレッドが正本なので、別の索引を取りに行かない。 */
+function rebuildItems() {
+  items = [...logs.entries()]
+    .filter(([, log]) => log.length)
+    .map(([id, log]) => ({
+      id,
+      status: stateOf(id),
+      slide: log[0].slide || {},
+      instruction: log[0].text || "",
+      refs: log[0].refs || [],
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
   const open = items.filter((i) => i.status === "open").length;
   $("tally").innerHTML = items.length
     ? `指摘 ${items.length}件<span> / </span><b>未反映 ${open}件</b>` : "";
@@ -905,9 +853,11 @@ function render() {
   refStore.clear(); refNums = new Map(); hoverEl = null; focusItem = null;
   for (const p of [...editor.querySelectorAll(".pill")]) p.remove();
   hidePillTools();
-  frame.src = "/" + s.file;
+  if (BUNDLED) frame.srcdoc = s.file;          // 1枚ものでは本文そのものが入っている
+  else frame.src = SERVED ? "/" + s.file : s.file;
   $("counter").textContent = `${String(index + 1).padStart(2, "0")} / ${String(slides.length).padStart(2, "0")}`;
   $("title").textContent = s.title;
+  $("progress").style.width = `${((index + 1) / slides.length) * 100}%`;
   $("prev").disabled = index === 0;
   $("next").disabled = index === slides.length - 1;
   if (had) toast("スライドを移動したので指定を外しました");
@@ -926,7 +876,8 @@ frame.addEventListener("load", () => {
   let d = null;
   try { d = frame.contentDocument; } catch { d = null; }
   if (!d) {
-    banner("iframe の中に到達できません。file:// で開いていませんか。\nreview_server.py の URL から開いてください。");
+    // file:// と srcdoc では到達できないのが正常 (レビューは畳んである)。警告は http のときだけ。
+    if (SERVED) banner("iframe の中に到達できません。review_server.py の URL から開いてください。");
     return;
   }
   banner("");
@@ -971,7 +922,7 @@ function injectUI(d) {
 const MARK = { hover: "#0f6cbd", draft: "#a4620a",
                open: "#a4620a", in_progress: "#a4620a", waiting_main: "#8764b8",
                proposed: "#0f6cbd", changes_requested: "#c4314b", merged: "#0f7b3f",
-               applied: "#0f7b3f", deferred: "#0f6cbd", rejected: "#8a8886", closed: "#8a8886" };
+               deferred: "#0f6cbd", rejected: "#8a8886", closed: "#8a8886" };
 
 /* ================================================================ 要素の記述 */
 
@@ -1169,7 +1120,7 @@ function handleKey(e) {
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); send(); return; }
   if (typing) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  if (e.key === "e" || e.key === "E") { e.preventDefault(); setReview(!review); return; }
+  if (e.key === "e" || e.key === "E") { if (SERVED) { e.preventDefault(); setReview(!review); } return; }
   if (e.key === "t" || e.key === "T") { e.preventDefault(); setTheme(currentTheme() === "dark" ? "light" : "dark"); return; }
   // レビュー中に素のレイアウトを確かめたいことがある。ピンだけ落とす。
   if (e.key === "p" || e.key === "P") { e.preventDefault(); togglePins(); return; }
@@ -1209,7 +1160,7 @@ function setReview(on) {
 const STATUS_JA = {
   open: "未着手", in_progress: "作業中", waiting_main: "テーマ判断待ち", proposed: "確認待ち",
   changes_requested: "差し戻し", merged: "マージ済み", deferred: "保留", rejected: "却下",
-  closed: "取り下げ", applied: "反映済み",
+  closed: "取り下げ",
 };
 const TERMINAL = ["merged", "closed", "rejected"];
 
@@ -1455,10 +1406,6 @@ function renderThread() {
       const why = document.createElement("div");
       why.className = "why"; why.textContent = last.text;
       card.appendChild(why);
-    } else if (it.resolution?.action) {
-      const why = document.createElement("div");
-      why.className = "why"; why.textContent = it.resolution.action;
-      card.appendChild(why);
     }
     const un = unreadOf(it.id);
     if (un) {
@@ -1495,7 +1442,7 @@ async function send() {
     if (!res.ok) throw new Error(body.error || res.status);
     editor.textContent = "";
     refStore.clear(); refNums = new Map(); hidePillTools();
-    await reloadItems();
+    await pollThreads(true);
     syncRefs(); renderPane(); paint();
     toast(`${body.item.id} を送信しました`);
   } catch (err) {
@@ -1601,6 +1548,8 @@ $("paneBack").onclick = closeThread;
 $("pins").onclick = togglePins;
 $("modeBtn").onclick = () => setReview(!review);
 $("paneClose").onclick = () => setReview(false);
+$("pdfBtn").onclick = () => exportAs("pdf", $("pdfBtn"));
+$("htmlBtn").onclick = () => exportAs("html", $("htmlBtn"));
 $("themeBtn").onclick = () => setTheme(currentTheme() === "dark" ? "light" : "dark");
 $("fullscreen").onclick = async () => {
   if (!document.fullscreenElement) await document.documentElement.requestFullscreen();

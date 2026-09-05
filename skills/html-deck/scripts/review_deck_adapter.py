@@ -8,10 +8,61 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
+
+
+def utf8_io() -> None:
+    """自分の標準出力を UTF-8 に固定する。
+
+    このスキルのスクリプトは日本語しか出さないのに、Windows の既定は cp932。
+    パイプに繋ぐとロケール依存になり、ダッシュや一部の記号で
+    UnicodeEncodeError で落ちる。出す側で決めておけばロケールに左右されない。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass          # 差し替えられたストリームなら諦める (出力の問題でしかない)
+
+
+def script_cmd(script: Path) -> list[str]:
+    """スクリプトを起動するコマンド。
+
+    check_deck.py と export_pdf.py は PEP 723 ヘッダ (`# /// script`) を持っていて、
+    依存 (playwright / pypdf) を `uv run` が解決する前提で書かれている。
+    sys.executable で叩くと ModuleNotFoundError で落ちるので、ヘッダのある
+    スクリプトは uv 経由にする。uv が無い環境では素の python に落として、
+    そこで出るエラーをそのまま呼び出し側に見せる。
+    """
+    head = script.read_text(encoding="utf-8", errors="replace")[:400]
+    if "# /// script" in head and (uv := shutil.which("uv")):
+        return [
+            uv, "run", "--quiet", "--no-project", "--no-managed-python",
+            "--python", sys.executable, str(script),
+        ]
+    return [sys.executable, str(script)]
+
+
+def run_script(script: Path, *args: str, timeout: float | None = None):
+    """同梱スクリプトを起動して結果を返す。**文字コードは UTF-8 に固定する。**
+
+    `text=True` だけだとロケールで復号する。Windows の cp932 で子の UTF-8 出力を
+    読むと UnicodeDecodeError で落ちる (実際に落ちた)。日本語を出すスクリプトしか
+    無いので、親子ともロケールに任せない。復号エラーは replace で潰す —
+    ここで欲しいのは呼び出し側へ見せるログであって、1文字の正確さではない。
+    """
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
+    return subprocess.run(script_cmd(script) + [str(a) for a in args],
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace",
+                          env=env, timeout=timeout)
 
 
 def is_deck(root: Path) -> bool:

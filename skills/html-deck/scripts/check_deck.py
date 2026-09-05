@@ -769,9 +769,9 @@ def sync_viewer(deck: Path, slides: list[tuple[Path, str]]) -> bool:
     if VIEWER_MARK_START not in src:
         return False
     body = ",\n".join(
-        f'      ["slides/{p.name}", {json.dumps(title, ensure_ascii=False)}]' for p, title in slides
+        f'  ["slides/{p.name}", {json.dumps(title, ensure_ascii=False)}]' for p, title in slides
     )
-    block = f"{VIEWER_MARK_START}\n    const slides = [\n{body}\n    ];\n    {VIEWER_MARK_END}"
+    block = f"{VIEWER_MARK_START}\nconst slides0 = [\n{body}\n];\n{VIEWER_MARK_END}"
     new = re.sub(
         re.escape(VIEWER_MARK_START) + r".*?" + re.escape(VIEWER_MARK_END),
         lambda _: block,
@@ -861,7 +861,17 @@ def build_contact_sheet(page, shots: list[tuple[str, Path, bool]], out: Path, co
 # ---------------------------------------------------------------- main
 
 
+def _utf8_io() -> None:
+    """日本語しか出さないのに Windows の既定は cp932。パイプに繋ぐと落ちる。"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main() -> int:
+    _utf8_io()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("deck", type=Path, help="デッキのディレクトリ (index.html と slides/ がある場所)")
     ap.add_argument("--round", type=int, default=None, help="ラウンド番号。省略時は自動採番")

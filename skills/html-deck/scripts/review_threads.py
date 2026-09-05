@@ -6,6 +6,9 @@
     .loop/feedback/merged.jsonl           マージで確定した意図
     .loop/feedback/cursor.json            エージェントがどこまで読んだか
 
+スレッドが唯一の正本。起票内容も状態もここにしかない (ビューアのピンもここを見る)。
+同じ事実を別ファイルにも書くと、必ず片方が古くなって「どちらが本当か」を調べる羽目になる。
+
 なぜ1スレッド1ファイルか:
   追記専用なので競合しない。丸ごと読めばそのスレッドの文脈が過不足なく揃う。
   「他のスレッドの会話は渡さない」という設計上の境界が、そのままファイル境界になる。
@@ -297,13 +300,7 @@ def merge(root: Path, tid: str, *, intent: str, check: dict | None = None,
     slide = (first.get("slide") or {}).get("id") or ""
     accepted_line = f"[user] {slide}: {intent} ({tid})".strip()
 
-    # ピンの色はここを見ている (v1 の resolved.jsonl をそのまま使う)
     with _lock:
-        _append_jsonl(_fpath(root, "resolved.jsonl"), {
-            "v": 1, "id": tid, "status": "merged", "round": adapter.current_round(root),
-            "resolved_at": rec["at"], "action": _last_ai_text(events) or intent,
-            "accepted_line": accepted_line,
-        })
         _append_jsonl(_fpath(root, "merged.jsonl"), {
             "v": 1, "id": tid, "merged_at": rec["at"],
             "slide": slide, "slide_file": (first.get("slide") or {}).get("file"),
@@ -316,9 +313,42 @@ def merge(root: Path, tid: str, *, intent: str, check: dict | None = None,
             "check_skipped": check_skipped or None,
         })
 
-    import review_resolve  # 遅延 import (accepted への積み方は1箇所に置く)
-    review_resolve.append_accepted(root / "deck.md", accepted_line)
+    append_accepted(root / "deck.md", accepted_line)
     return rec
+
+
+def append_accepted(deck_md: Path, line: str) -> bool:
+    """deck.md の ## accepted の末尾に1行足す。節が無ければ作る。
+
+    ここが肝心。積まないと次のラウンドで批評サブエージェントが逆方向に指摘し、
+    ユーザーの意思が静かに巻き戻る。
+    """
+    if not deck_md.is_file():
+        return False
+    lines = deck_md.read_text(encoding="utf-8").splitlines()
+    entry = f"- {line}"
+    if entry in lines:
+        return True
+
+    try:
+        start = next(i for i, l in enumerate(lines) if l.strip().lower() == "## accepted")
+    except StopIteration:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines += ["## accepted",
+                  "<!-- 確定した判断。次のラウンドの批評担当にそのまま渡す -->",
+                  entry, ""]
+        deck_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return True
+
+    # 節の末尾。ただし節と節の間の空行より前に入れる。
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    insert = end
+    while insert > start + 1 and not lines[insert - 1].strip():
+        insert -= 1
+    lines.insert(insert, entry)
+    deck_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return True
 
 
 def _last_ai_text(events: list[dict]) -> str:

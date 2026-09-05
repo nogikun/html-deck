@@ -1,0 +1,27 @@
+{
+  "skill_name": "html-deck",
+  "note": "手順0-3 (スキル探索 → 材料読み → インタビュー → 骨格 → デザイン確定) だけを対象にする。手順4以降の全枚実装と検査ループはヘッドレスChromeが要り1本あたり数十分かかるので、ハーネス側で止めている。",
+  "evals": [
+    {
+      "id": 0,
+      "name": "docx-import-decision-deck",
+      "prompt": "先週の定例の議事録から、9月の役員会に出す資料を作りたい。20分の枠で、役員に限定パイロットを承認してもらうのが狙い。議事録は html-deck-workspace/materials/フェニックス計画_第3回議事録.docx にある。",
+      "expected_output": ".docx の中身を実際に読み取り、そこにしかない固有名詞・数値 (フェニックス計画 / 1,180万円 / 182時間 / 限定パイロット等) を deck.md に反映したうえで、frontend-design を読んでから theme.css に具体的な配色と書体を確定させている。",
+      "files": ["html-deck-workspace/materials/フェニックス計画_第3回議事録.docx"]
+    },
+    {
+      "id": 1,
+      "name": "plaintext-talk-deck",
+      "prompt": "JSConf の登壇資料を作りたい。ネタは html-deck-workspace/materials/登壇メモ.md にまとめてあるけどまだぐちゃぐちゃで、構成も決まってない。25分枠＋質疑5分。",
+      "expected_output": "バイナリ形式の材料が無いので import 系スキルは使わない。話しながら見せる資料と判断して1枚300字の予算を立て、メモの中の図にできる関係 (4象限・147→12の推移) を storyboard の visual 列に落とし、frontend-design を読んでから theme.css を確定させている。",
+      "files": ["html-deck-workspace/materials/登壇メモ.md"]
+    },
+    {
+      "id": 2,
+      "name": "xlsx-import-review-deck",
+      "prompt": "html-deck-workspace/materials/Q4拠点別実績.xlsx を見て、拠点別の状況を経営会議に共有する資料にしたい。札幌をどうするかの議論のきっかけにしたい。",
+      "expected_output": ".xlsx の数値を実際に読み取り、拠点名・粗利率・前年同期比を deck.md に反映している。数量比較なので storyboard の visual 列が「なし」で埋まらない。frontend-design を読んでから theme.css を確定させている。",
+      "files": ["html-deck-workspace/materials/Q4拠点別実績.xlsx"]
+    }
+  ]
+}

@@ -49,12 +49,8 @@ def slide_of(root: Path, tid: str) -> str:
 
 
 def run(root: Path, *, slide: str | None, shots: bool, out: Path) -> dict:
-    cmd = [sys.executable, str(HERE / "check_deck.py"), str(root), "--out", str(out)]
-    if slide:
-        cmd += ["--slide", slide]
-    if not shots:
-        cmd.append("--no-shots")
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    extra = (["--slide", slide] if slide else []) + ([] if shots else ["--no-shots"])
+    proc = adapter.run_script(HERE / "check_deck.py", root, "--out", out, *extra)
     report = out / "report.json"
     if not report.is_file():
         raise SystemExit("error: check_deck.py が report.json を出さなかった\n"
@@ -85,6 +81,7 @@ def digest(report: dict, slide: str | None) -> dict:
 
 
 def main() -> int:
+    adapter.utf8_io()
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("deck", type=Path)

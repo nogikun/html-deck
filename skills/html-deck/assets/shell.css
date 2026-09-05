@@ -1,0 +1,156 @@
+/* =========================================================================
+   ビューア (viewer.html) とレビュー画面 (review.html) の共通の殻。
+   両方の <style> にある印へ、配置時・配信時にそのまま差し込まれる
+   (init_deck.py と review_server.py)。リンクではなく埋め込みなのは、
+   デッキを1ファイルで持ち出せる状態を壊さないため。
+
+   ここに置くのは「2つの画面で同じでなければならないもの」だけ。
+   片方にしか無い部品 (進捗バー・ペイン・ピン) は各ファイルに残す。
+
+   白モード / ナイトモード。色は必ず :root に全部定義してから、
+   dark で「同じキーを上書き」する。片方にしか無い色を作らない。
+   Office (PowerPoint) の Fluent グレーに寄せてある。
+   ====================================================================== */
+:root {
+  color-scheme: light;
+  --app:        #f3f2f1;   /* スライドを浮かせる地の色 */
+  --chrome:     #ffffff;   /* ツールバー・ステータスバー・ペイン */
+  --chrome-2:   #faf9f8;   /* 一段沈める面 */
+  --card:       #ffffff;
+  --line:       #e1dfdd;
+  --line-2:     #c8c6c4;
+  --text:       #201f1e;
+  --text-2:     #605e5c;
+  --text-3:     #8a8886;
+  --brand:      #c43e1c;   /* 赤橙。S のマークに使うアプリの身元の色 */
+  --brand-ink:  #ffffff;
+  --brand-soft: #fdf1ee;
+  --accent:     #0f6cbd;   /* 選択・参照。操作の色 */
+  --accent-soft:#eff6fc;
+  --hot:        #a4620a;   /* レビュー中 */
+  --hot-soft:   #fdf6e7;
+  --ok:         #0f7b3f;
+  --ok-soft:    #eff8f2;
+  --shadow-1:   0 1.6px 3.6px rgba(0,0,0,.10), 0 .3px .9px rgba(0,0,0,.07);
+  --shadow-2:   0 12px 28px rgba(0,0,0,.16), 0 2px 6px rgba(0,0,0,.08);
+  --ui: "Segoe UI", "Yu Gothic UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN",
+        "Noto Sans JP", system-ui, sans-serif;
+  --mono: "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --app:        #161514;
+  --chrome:     #292827;
+  --chrome-2:   #1f1e1d;
+  --card:       #333231;
+  --line:       #3d3c3b;
+  --line-2:     #565453;
+  --text:       #f3f2f1;
+  --text-2:     #c8c6c4;
+  --text-3:     #979593;
+  --brand:      #ef7a5c;
+  --brand-ink:  #2b1006;
+  --brand-soft: #3a221b;
+  --accent:     #62abf5;
+  --accent-soft:#20303f;
+  --hot:        #f0b455;
+  --hot-soft:   #3a2d17;
+  --ok:         #5ec98a;
+  --ok-soft:    #1c3327;
+  --shadow-1:   0 1.6px 3.6px rgba(0,0,0,.35), 0 .3px .9px rgba(0,0,0,.30);
+  --shadow-2:   0 16px 40px rgba(0,0,0,.50), 0 2px 8px rgba(0,0,0,.35);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --app:        #161514;
+    --chrome:     #292827;
+    --chrome-2:   #1f1e1d;
+    --card:       #333231;
+    --line:       #3d3c3b;
+    --line-2:     #565453;
+    --text:       #f3f2f1;
+    --text-2:     #c8c6c4;
+    --text-3:     #979593;
+    --brand:      #ef7a5c;
+    --brand-ink:  #2b1006;
+    --brand-soft: #3a221b;
+    --accent:     #62abf5;
+    --accent-soft:#20303f;
+    --hot:        #f0b455;
+    --hot-soft:   #3a2d17;
+    --ok:         #5ec98a;
+    --ok-soft:    #1c3327;
+    --shadow-1:   0 1.6px 3.6px rgba(0,0,0,.35), 0 .3px .9px rgba(0,0,0,.30);
+    --shadow-2:   0 16px 40px rgba(0,0,0,.50), 0 2px 8px rgba(0,0,0,.35);
+  }
+}
+
+* { box-sizing: border-box; }
+html, body {
+  width: 100%; height: 100%; margin: 0; overflow: hidden;
+  background: var(--app); color: var(--text);
+  font-family: var(--ui); font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+body { display: grid; grid-template-rows: 48px 1fr 28px; min-width: 0; }
+button { font-family: inherit; }
+::selection { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+
+/* ------------------------------------------------------------ ツールバー */
+.toolbar {
+  display: flex; align-items: center; gap: 10px; padding: 0 12px 0 14px;
+  background: var(--chrome); border-bottom: 1px solid var(--line);
+  box-shadow: var(--shadow-1); z-index: 4; min-width: 0;
+}
+.logo {
+  width: 22px; height: 22px; flex: none; border-radius: 3px;
+  background: var(--brand); color: var(--brand-ink);
+  display: grid; place-items: center; font: 700 13px/1 var(--ui);
+}
+.spacer { flex: 1; min-width: 0; }
+.btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px;
+  border: 1px solid transparent; border-radius: 4px; background: none;
+  color: var(--text); font-size: 12.5px; cursor: pointer; white-space: nowrap;
+}
+.btn:hover { background: var(--chrome-2); border-color: var(--line); }
+.btn:active { background: var(--line); }
+.btn.icon { width: 30px; padding: 0; justify-content: center; font-size: 14px; }
+.btn:focus-visible, .sbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sep { width: 1px; height: 22px; background: var(--line); flex: none; }
+
+/* ----------------------------------------------------------------- 舞台 */
+.stage { position: relative; min-height: 0; min-width: 0; overflow: hidden; background: var(--app); }
+.frame {
+  position: absolute; left: 50%; top: 50%; width: 1600px; height: 900px;
+  transform: translate(-50%, -50%) scale(var(--deck-scale, 1)); transform-origin: center;
+  background: #fff; box-shadow: var(--shadow-2);
+  outline: 1px solid var(--line-2); outline-offset: 0;
+}
+iframe { width: 1600px; height: 900px; border: 0; display: block; background: #fff; }
+.banner {
+  position: absolute; left: 50%; top: 18px; transform: translateX(-50%); z-index: 5;
+  max-width: 70%; padding: 10px 14px; border-radius: 4px; display: none; white-space: pre-wrap;
+  background: var(--hot-soft); color: var(--hot); box-shadow: var(--shadow-1);
+  border: 1px solid color-mix(in srgb, var(--hot) 40%, transparent);
+  font: 12px/1.6 var(--ui);
+}
+.banner[data-show="true"] { display: block; }
+
+/* ----------------------------------------------------- ステータスバー */
+.status {
+  display: flex; align-items: center; gap: 10px; padding: 0 8px 0 14px;
+  background: var(--chrome); border-top: 1px solid var(--line);
+  font-size: 11.5px; color: var(--text-2); min-width: 0;
+}
+.status .slidetitle { min-width: 0; white-space: nowrap; overflow: hidden;
+                      text-overflow: ellipsis; color: var(--text-2); }
+.status .counter { font: 11px/1 var(--mono); color: var(--text-2); flex: none; }
+.status .zoom { font: 11px/1 var(--mono); color: var(--text-3); flex: none; }
+.sbtn {
+  width: 22px; height: 20px; border: 0; border-radius: 3px; background: none; flex: none;
+  color: var(--text-2); cursor: pointer; font-size: 12px; line-height: 1;
+}
+.sbtn:hover:not(:disabled) { background: var(--chrome-2); color: var(--text); }
+.sbtn:disabled { opacity: .3; cursor: default; }

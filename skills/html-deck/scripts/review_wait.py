@@ -31,21 +31,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import review_deck_adapter as adapter  # noqa: E402
-import review_server  # noqa: E402
 import review_threads as threads  # noqa: E402
 
 
-def pending(root: Path) -> list[dict]:
-    """未読のユーザー発言。スレッドが無い古いデッキでは inbox の open を見る。"""
-    if threads.ids(root):
-        return threads.unread(root)
-    return [{"id": it["id"], "state": "open", "slide": it.get("slide") or {},
-             "new": [{"seq": 1, "role": "user", "kind": "comment",
-                      "text": it.get("instruction"), "refs": it.get("refs") or []}]}
-            for it in review_server.read_all(root) if it.get("status") == "open"]
-
-
 def main() -> int:
+    adapter.utf8_io()
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("deck", type=Path)
@@ -60,7 +50,7 @@ def main() -> int:
 
     start = time.monotonic()
     while True:
-        items = pending(root)
+        items = threads.unread(root)
         if items:
             print(json.dumps({
                 "waited_sec": round(time.monotonic() - start, 1),

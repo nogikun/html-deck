@@ -464,3 +464,22 @@ P1 は独立。**P1 だけ入れて止めても、いま使っている手順は
 1. **`other` キー**。集約に数えないと決めたが、`other` が3件溜まったら語彙を足す合図にする、
    くらいの扱いは要るかもしれない
 2. **ペインの幅** 372px。実機で読めてはいるが、長い会話だと窮屈。レビュー中だけ広げる案は保留
+
+## その後の変更 (2026-09-05 / v2.1)
+
+v1 との互換のために残していた並行ストアを畳んだ。**スレッドが唯一の正本**になっている。
+
+| 消したもの | 理由 / 置き換え |
+| --- | --- |
+| `inbox.jsonl` | 起票内容はスレッドの seq 1 に入っている。id はスレッドの本数から採る |
+| `resolved.jsonl` | `read_all()` が読んだ直後にスレッドの state で上書きしていた (= 読まれていなかった)。ピンの色は state を直接見る |
+| `GET /__review/api/feedback` と `read_all()` | ビューアは `/api/threads` のログから一覧とピンを組み立てる |
+| `scripts/review_resolve.py` | スレッドを使わない旧経路。生きていた `append_accepted()` だけ `review_threads.py` へ移設 |
+| `assets/thread.schema.json` / `feedback.schema.json` | どこからも読まれず、検証にも使っていなかった |
+| `review_thread.py` の `show` / `ack` | `show` は `context` の部分集合。`ack` は `post()` が自動で呼ぶ |
+
+あわせて `assets/shell.css` を新設し、`viewer.html` と `review.html` で完全に同じだった
+146行 (トークン・ツールバー・舞台・ステータスバー) を1箇所にまとめた。配置時・配信時に
+両方へ埋め込むので、デッキは今までどおり `index.html` 1ファイルで持ち出せる。
+
+`scripts/test_review_flow.py` が起票→返信→提案→マージ→確定後までを通す。ブラウザは要らない。

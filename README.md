@@ -1,11 +1,13 @@
 # HTML Deck Skill
 
-メモ、記事、調査資料、議事録、URL、口頭の依頼などをもとに、**HTML 形式のスライド資料を作り、検査と改善を繰り返して仕上げるための Codex スキル**です。
+メモ、記事、調査資料、議事録、URL、口頭の依頼などをもとに、**HTML 形式のスライド資料を作り、検査と改善を繰り返して仕上げるための Skills** です。
 
 単にスライドを HTML で出力するだけではなく、固定キャンバス上で文字サイズ・はみ出し・コントラスト・情報量などを実測し、スクリーンショットと批評を使って読みやすさを改善します。納品用には、同じレイアウトを保った PDF も出力できます。
 
 ## セットアップ
+
 以下のコマンドを実行し、ターミナル上で適用先を指定
+
 ```bash
 npx skills add nogikun/gen-slide-skills
 ```
@@ -29,22 +31,22 @@ npx skills add nogikun/gen-slide-skills
 
 ## リポジトリ構成
 
-| パス | 役割 |
-| --- | --- |
-| `skills/html-deck/SKILL.md` | Codex に渡す制作手順と品質基準 |
-| `skills/html-deck/assets/` | スライド雛形、共有テーマ、ビューア、検査しきい値 |
-| `skills/html-deck/scripts/init_deck.py` | 新しいデッキの骨格を作成 |
-| `skills/html-deck/scripts/check_deck.py` | デッキを実測し、検査結果と画像を出力 |
-| `skills/html-deck/scripts/export_pdf.py` | スライドを固定レイアウト PDF に結合 |
-| `skills/html-deck/scripts/drawio_svg.py` | `.drawio` を貼り込み用 SVG に変換 |
-| `skills/html-deck/scripts/review_server.py` | レビューモードのサーバ。DOM 指定を JSON に落とす |
-| `skills/html-deck/scripts/review_wait.py` | 指摘が届くまで待機（送信を検知する経路） |
+| パス                                           | 役割                                                  |
+| ---------------------------------------------- | ----------------------------------------------------- |
+| `skills/html-deck/SKILL.md`                  | Codex に渡す制作手順と品質基準                        |
+| `skills/html-deck/assets/`                   | スライド雛形、共有テーマ、ビューア、検査しきい値      |
+| `skills/html-deck/scripts/init_deck.py`      | 新しいデッキの骨格を作成                              |
+| `skills/html-deck/scripts/check_deck.py`     | デッキを実測し、検査結果と画像を出力                  |
+| `skills/html-deck/scripts/export_pdf.py`     | スライドを固定レイアウト PDF に結合                   |
+| `skills/html-deck/scripts/drawio_svg.py`     | `.drawio` を貼り込み用 SVG に変換                   |
+| `skills/html-deck/scripts/review_server.py`  | レビューモードのサーバ。DOM 指定を JSON に落とす      |
+| `skills/html-deck/scripts/review_wait.py`    | 指摘が届くまで待機（送信を検知する経路）              |
 | `skills/html-deck/scripts/review_resolve.py` | 指摘の適用/却下を記録し、`deck.md` に確定判断を積む |
-| `skills/html-deck/references/` | レイアウト、図、反復改善のガイド |
-| `skills/html-deck/agents/` | スライド単位・デッキ全体の批評用指示 |
-| `skills/html-deck/assets/review.html` | レビュー用ビューア（デッキには配置されない） |
-| `docs/design/` | 設計ドキュメント |
-| `docs/` | このスキルで作成したデッキの例 |
+| `skills/html-deck/references/`               | レイアウト、図、反復改善のガイド                      |
+| `skills/html-deck/agents/`                   | スライド単位・デッキ全体の批評用指示                  |
+| `skills/html-deck/assets/review.html`        | レビュー用ビューア（デッキには配置されない）          |
+| `docs/design/`                               | 設計ドキュメント                                      |
+| `docs/`                                      | このスキルで作成したデッキの例                        |
 
 ## 必要なもの
 

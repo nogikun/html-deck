@@ -125,6 +125,19 @@ def check(root: Path) -> None:
     assert len(out) == 1
     assert T.state_of(T.read(root, "fb-002")) == "in_progress"
 
+    # --- 欠番があっても既存 id を再利用しない
+    # 本数で数えると、スレッドが1本消えたときに生きている id を再発番する。
+    # start() は既存スレッドがあれば追記せずそれを返すので、衝突すると
+    # ユーザーの新しい指摘が黙って消える。
+    (T.threads_dir(root) / "fb-001.jsonl").unlink()
+    assert server.next_id(root) == "fb-003", server.next_id(root)
+    third = server.create_feedback(root, {
+        "slide_id": "03-evidence", "slide_file": "slides/03-evidence.html",
+        "instruction": "3件目", "refs": [],
+    })
+    assert third["id"] == "fb-003", third
+    assert (T.read(root, "fb-003")[0].get("text")) == "3件目"   # 既存に合流していない
+
 
 def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:

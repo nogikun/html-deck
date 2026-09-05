@@ -409,6 +409,7 @@ PPTX が必須なら最初から `pptx` スキルで作る。
 | `scripts/review_check.py` | 検査の濃淡ラッパ (`brief` / `full` / `deck`) | 手順8 |
 | `scripts/test_review_flow.py` | レビュー経路の自己チェック (ブラウザ不要) | レビュー機構を触ったとき |
 | `scripts/test_export_pdf.py` | PDFのフォント照合の自己チェック (ブラウザ不要) | export_pdf.py を触ったとき |
+| `scripts/test_bundle_deck.py` | バンドルがデッキ外を畳まないことの検査 (ブラウザ不要) | bundle_deck.py を触ったとき |
 | `assets/review.html` | **唯一のビューア。** 配信時はレビュー付き、`file://` では自分で畳んでただのビューアになる | サーバ配信 / init_deck が配置 |
 
 `check_deck.py` と `export_pdf.py` は `uv run` で依存を自動解決する (サーバから叩くときも同じ)

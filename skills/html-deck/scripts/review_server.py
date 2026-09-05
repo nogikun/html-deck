@@ -97,6 +97,20 @@ def _expand(instruction: str, refs: list[dict], slide_file: str) -> str:
     return out
 
 
+ID_RE = re.compile(r"fb-(\d+)$")
+
+
+def next_id(root: Path) -> str:
+    """既存の最大番号 + 1。本数で数えない。
+
+    スレッドが1本消えると本数が減り、生きている id をもう一度発番してしまう。
+    `threads.start()` は既存のスレッドがあれば追記せずそれを返すので、
+    衝突するとユーザーの新しい指摘が黙って消える。
+    """
+    nums = [int(m.group(1)) for t in threads.ids(root) if (m := ID_RE.fullmatch(t))]
+    return f"fb-{max(nums, default=0) + 1:03d}"
+
+
 def create_feedback(root: Path, payload: dict) -> dict:
     slide_file = payload.get("slide_file") or ""
     if not re.fullmatch(r"slides/[\w.\-]+\.html", slide_file):
@@ -105,9 +119,8 @@ def create_feedback(root: Path, payload: dict) -> dict:
     refs = [_resolve_ref(root, slide_file, r) for r in payload.get("refs", [])]
 
     with _lock:
-        # id はスレッドの本数から採る。連番の出どころもスレッドだけにする。
         item = {
-            "id": f"fb-{len(threads.ids(root)) + 1:03d}",
+            "id": next_id(root),
             "round": adapter.current_round(root),
             "slide": {
                 "id": payload.get("slide_id"),

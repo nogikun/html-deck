@@ -13,8 +13,10 @@
 from __future__ import annotations
 
 import base64
+import io
 import sys
 import tempfile
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -53,6 +55,8 @@ def build(tmp: Path) -> Path:
   <img src="../../outside.txt" alt="上に抜ける">
   <img src="{(tmp / 'outside.txt').as_posix()}" alt="絶対パス">
   <img src="/etc/passwd" alt="ルート">
+  <img src="https://example.com/remote.png" alt="外部サイト">
+  <a href="https://example.com/">外部リンク (これは正当なので数えない)</a>
 </main></body></html>
 """, encoding="utf-8")
     return deck
@@ -62,7 +66,10 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         deck = build(Path(tmp))
         sys.argv = ["bundle_deck.py", str(deck)]
-        assert bundle_deck.main() == 0
+        err, out = io.StringIO(), io.StringIO()
+        with redirect_stderr(err), redirect_stdout(out):
+            assert bundle_deck.main() == 0
+        warn, said = err.getvalue(), out.getvalue()
         html = (deck / f"{deck.name}.html").read_text(encoding="utf-8")
 
     # --- デッキ外は1バイトも入っていない
@@ -78,6 +85,14 @@ def main() -> int:
     assert "data:image/png;base64," in html, "デッキ内の画像が畳まれていない"
     assert 'src="../fig.png"' not in html, "デッキ内の画像が参照のまま残っている"
     assert "url(../fig.png)" not in html, "CSS の url() が畳まれていない"
+
+    # --- 畳めなかった読み込み参照は警告に出し、「外部参照なし」と言い切らない
+    assert "https://example.com/remote.png" in warn, warn
+    assert "../../outside.txt" in warn, warn
+    assert "外部参照なしの1ファイル" not in said, said
+    assert "外部参照が" in said and "残っている" in said, said
+    # href のリンクは数えない (外部サイトへのリンクは正当)
+    assert "外部リンク" in html
 
     # --- 単体の判定も直接確かめる
     root = Path(tempfile.gettempdir()).resolve() / "deck"

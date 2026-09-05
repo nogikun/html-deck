@@ -119,13 +119,18 @@ def main() -> int:
         print("error: slides/*.html がありません", file=sys.stderr)
         return 2
 
-    rows = []
+    rows, left_all = [], []
     for meta in metas:
         body = inline_slide(deck / meta["file"], deck)
-        left = [u for _, u in ATTR_URL_RE.findall(body) if is_local(u)]
+        # 畳めなかった読み込み参照。http(s) も、デッキ外も、見つからなかったものも
+        # 等しく「送った先で読めない/取りに行く」ので、まとめてここで数える。
+        # href はリンク用途があるので数えない (外部サイトへのリンクは正当)。
+        left = sorted({u for attr, u in ATTR_URL_RE.findall(body)
+                       if attr.lower() == "src" and not u.startswith("data:")})
         if left:
-            print(f"warning: {meta['file']} に畳めない参照が残った: {', '.join(sorted(set(left))[:4])}",
+            print(f"warning: {meta['file']} に外部参照が残った: {', '.join(left[:4])}",
                   file=sys.stderr)
+            left_all += left
         rows.append([body, meta["title"]])
 
     title = adapter.deck_title(deck)
@@ -144,7 +149,12 @@ def main() -> int:
     out.write_text(html, encoding="utf-8")
     kb = out.stat().st_size / 1024
     print(f"{len(rows)}枚 → {out}  ({kb:,.0f} KB)")
-    print("外部参照なしの1ファイル。そのまま送れる (レビュー機能は付かない)。")
+    if left_all:
+        # 「外部参照なし」と言い切れないときに言い切らない。渡した先で
+        # 画像が出ないのを、受け取った側が気づくのでは遅い。
+        print(f"外部参照が {len(left_all)}件 残っている。渡す前に上の warning を確認する。")
+    else:
+        print("外部参照なしの1ファイル。そのまま送れる (レビュー機能は付かない)。")
     return 0
 
 

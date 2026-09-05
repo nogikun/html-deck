@@ -684,7 +684,11 @@ async function exportAs(kind, btn) {
     });
     const body = await r.json();
     if (r.ok) {
-      toast(body.log.split(/\r?\n/).filter(Boolean).slice(-1)[0] || "書き出した");
+      // 成功でも警告は出る (畳めなかった参照など)。黙って成功と言わない。
+      const warned = /(^|\n)warning:/.test(body.log || "");
+      if (warned) console.warn(`[export ${kind}]\n` + body.log);
+      const last = body.log.split(/\r?\n/).filter(Boolean).slice(-1)[0] || "書き出した";
+      toast(last + (warned ? " — 警告あり (コンソール)" : ""), warned ? "warn" : "");
     } else if (kind === "pdf" && /allow-font-fallback/.test(body.error || "")) {
       pdfFallbackOK = true;
       toast("指定の書体がこの環境に無い。もう一度押すと代替書体のまま書き出す", "warn");

@@ -189,11 +189,14 @@ def run_export(root: Path, script: str, *args: str) -> dict:
         proc = adapter.run_script(here / script, root, *args, timeout=600)
     except Exception as e:      # noqa: BLE001 - 起動できない理由は全部ここでボタンに返す
         return {"ok": False, "error": f"{script} を実行できなかった: {type(e).__name__}: {e}"}
-    tail = "\n".join(l for l in (proc.stdout or "").splitlines() if l.strip())
+    out = "\n".join(l for l in (proc.stdout or "").splitlines() if l.strip())
+    err = "\n".join(l for l in (proc.stderr or "").splitlines() if l.strip())
     if proc.returncode != 0:
-        err = "\n".join(l for l in (proc.stderr or "").splitlines() if l.strip())
-        return {"ok": False, "error": (err or tail or "理由不明")[-600:]}
-    return {"ok": True, "log": tail[-600:]}
+        return {"ok": False, "error": (err or out or "理由不明")[-600:]}
+    # 成功でも警告は出る (畳めなかった参照など)。捨てるとブラウザ側からは
+    # 何も無かったように見える。stderr を先に置いて、最後の行が結果になるようにする
+    # (ブラウザは最後の1行をトーストに出す)。
+    return {"ok": True, "log": "\n".join(x for x in (err, out) if x)[-600:]}
 
 
 def set_state(root: Path, payload: dict) -> dict:

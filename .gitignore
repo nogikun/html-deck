@@ -11,3 +11,10 @@ __pycache__/
 
 # テスト用
 work
+
+# 依存スキルの実体は追跡しない。skills-lock.json から復元する
+.claude/skills/
+.agents/skills/
+
+# スキルの評価ワークスペース (材料と生成物)
+html-deck-workspace/

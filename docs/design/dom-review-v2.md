@@ -471,7 +471,7 @@ v1 との互換のために残していた並行ストアを畳んだ。**スレ
 
 | 消したもの | 理由 / 置き換え |
 | --- | --- |
-| `inbox.jsonl` | 起票内容はスレッドの seq 1 に入っている。id はスレッドの本数から採る |
+| `inbox.jsonl` | 起票内容はスレッドの seq 1 に入っている。id は既存スレッドの**最大番号 + 1** (`next_id()`)。本数で数えると、1本消えたときに生きている id を再発番して既存スレッドに合流し、新しい指摘が消える |
 | `resolved.jsonl` | `read_all()` が読んだ直後にスレッドの state で上書きしていた (= 読まれていなかった)。ピンの色は state を直接見る |
 | `GET /__review/api/feedback` と `read_all()` | ビューアは `/api/threads` のログから一覧とピンを組み立てる |
 | `scripts/review_resolve.py` | スレッドを使わない旧経路。生きていた `append_accepted()` だけ `review_threads.py` へ移設 |

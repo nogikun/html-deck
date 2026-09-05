@@ -675,13 +675,15 @@ async function exportAs(kind, btn) {
   const label = btn.textContent;
   btn.disabled = true; btn.textContent = "書き出し中…";
   try {
+    // 読んだら必ず落とす。残すと、間に別の操作を挟んだ後の PDF まで
+    // 「承知のうえ」扱いになる。許すのは失敗の直後に押し直したときだけ。
     const force = kind === "pdf" && pdfFallbackOK;
+    pdfFallbackOK = false;
     const r = await api("/__review/api/export", {
       method: "POST", body: JSON.stringify({ kind, force }),
     });
     const body = await r.json();
     if (r.ok) {
-      pdfFallbackOK = false;
       toast(body.log.split(/\r?\n/).filter(Boolean).slice(-1)[0] || "書き出した");
     } else if (kind === "pdf" && /allow-font-fallback/.test(body.error || "")) {
       pdfFallbackOK = true;

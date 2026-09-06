@@ -6,6 +6,10 @@
 docs/*
 !docs/design/
 !docs/HTMLスライド生成アーキテクチャ調査.md
+!docs/research/
+!docs/research/*.md
+!docs/specs/
+!docs/specs/*.md
 
 __pycache__/
 node_modules/

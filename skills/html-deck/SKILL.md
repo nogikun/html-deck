@@ -148,6 +148,13 @@ storyboard は1行1枚で、`claim`(言い切りの見出し) と `job`(比較/�
 - 手順1で決めた1枚の字数を、`evidence` の量に掛けて総量を見る。総量が持ち時間を
   超えるなら、枚を増やすのではなく**節を落とす**
 
+### 余白の構図契約を先に決める
+
+余白は要素ごとの気分で足さず、**親の構図フレームが一度だけ予算化する**。
+実装前に各枚を `M=80 / frame=composition / axis=row / children=[A, connector, B] / G=40 / align=center` のように1行で決める。横方向は `内容幅の合計 + gapの合計 = フレームの内側幅` とし、矢印・線は内容列ではなく56〜80px程度の接続スロットにする。
+
+比較・表・大きな構図は、指定がなければ中央配置。固定幅のフレームには `margin-inline:auto` を使い、`left` や `transform` で後から見た目だけをずらさない。親の `gap` と隣接子の外側 `margin` で同じ間隔を二重に作らない。詳細な式・閾値・例外属性は `references/whitespace-theory.md` に従う。
+
 ## 3. デザインを決めて theme.css に固定する
 
 **`frontend-design` スキルを読む。ここは飛ばさない** (手順0 で拾ってあるはず)。
@@ -175,6 +182,11 @@ theme.css を決めたら以降は凍結する。触るのは「2枚以上で同
 数値の初期値と根拠は `references/quality-contract.md`。迷ったら本文24px・見出し54px・
 外周80px・1枚420字 (手順1で場面が「話しながら」なら300字) までから始める。
 
+最初に構図フレームを作り、次に兄弟トラック、最後に子のpaddingと文字・図形を置く。
+構図フレームには必要なら `data-space-frame="composition"`、中央配置には
+`data-space-align="center"`、矢印には `data-space-role="connector"` を付ける。
+明示しなくても、検査は表・比較クラスと幅720px以上の大きなgrid/flexを構図フレームとして推定する。
+
 **文字で埋めない。** 箇条書きは6項目まで、1項目60字まで。60字を超えたら、それは
 箇条書きの形をした段落で読まれない。関係 (比較/順序/包含/数量) が書かれているなら、
 文ではなく図にする — それが storyboard の `visual` 列に書いてあるはず。
@@ -196,7 +208,7 @@ uv run <このスキルのディレクトリ>/scripts/check_deck.py <deck-dir>
 ```
 
 1600x900 のヘッドレスChromeで全枚を実測し、はみ出し・文字切れ・文字サイズ・
-コントラスト・パレット逸脱・外部参照・情報密度・階層比を出す。
+コントラスト・パレット逸脱・外部参照・情報密度・階層比・意味要素の空白構造を出す。
 枚ごとの検査に加えて**並びの検査**も出る (`figure_coverage` / `text_only_streak` /
 `deck_too_dense`)。これは1枚ずつ見ても分からない欠陥で、**どの1枚も合格のまま
 デッキ全体が文字の壁になる**のを止めるためにある。1枚ずつ直すのではなく、
@@ -206,9 +218,26 @@ uv run <このスキルのディレクトリ>/scripts/check_deck.py <deck-dir>
 効いているか**まで確かめる (1枚ずつなら正しく、ビューアだと全スタイルが消える、
 という事故が実際にあった)。
 
+余白の実測値は `report.json` の `slides[].metrics.space` に出る。これは文字の
+`text_area_ratio`とは別の意味要素面積で、背景・装飾を除外した初期ヒューリスティック。
+`space_edge_tight`や`weak_group_separation`は review、`possible_dead_space`や
+`spacing_rhythm_noise`は info として扱い、スクリーンショットの人間判断を上書きしない。
+
+一方、`metrics.layout` の兄弟重なり、中央からの片寄り、子群の片寄り、過大な接続スロット、
+gapと子marginの二重所有はDOMの実矩形で再現できるためblockである。これは余白の好みを
+自動採点するものではなく、親フレームの配分が壊れていることを止める契約である。
+
+`layout_overlap`、`composition_off_center`、`layout_child_shift`、
+`connector_track_wide`、`redundant_gap_owner` が1件でも残る間は、批評サブエージェントを
+起動しない。修復は親のgrid/flex、幅の再配分、中央配置、間隔の所有者の整理の順で行い、
+子の座標を微調整して隠さない。
+
 **`block` が1件でも残っている間は、批評サブエージェントを起動しない。**
 機械が確実に見つけられる欠陥を自分で潰してから批評に出す。そうしないと
 批評の指摘枠が体裁の修正で埋まり、「主張が伝わるか」に枠が回らない。
+
+「ワンショット」は批評を省略するという意味ではない。初回生成時点で構図フレームを
+先に割り、決定的検査のlayout blockを0件にしてから批評へ渡す、という順序を意味する。
 
 ## 6. 批評を受けて差し戻す（Sonnetのサブエージェント）
 
@@ -245,6 +274,7 @@ prompt:
   そこの指示に完全に従うこと。
   - contact_sheet: <deck>/.loop/round-N/contact-sheet.png   ← 必ず Read で画像を見る
   - storyboard / deck_goal / takeaway / audience / accepted: <deck.md から貼る>
+  - layout_metrics: <report.json の全スライドの metrics.space / metrics.layout>
   - user_intents: <review_thread.py <deck> brief の出力を貼る>
   返答は指定のJSONのみ。
 ```
@@ -386,6 +416,7 @@ PPTX が必須なら最初から `pptx` スキルで作る。
 | --- | --- | --- |
 | `references/quality-contract.md` | 文字サイズ・密度・余白・色の数値と**その根拠** | 実装前 |
 | `references/layout-playbook.md` | job からレイアウトを決める手がかり | 実装前 |
+| `references/whitespace-theory.md` | 余白の一所有者原則・構図フレーム・layout blockの閾値 | 実装前・実装中 |
 | `references/figures.md` | 図の方式選択・配置パターン・図中の数値契約 | **図や画像を入れる前** |
 | `vendor/draw-io/` | draw.io スキル本体 (MIT / little-hands、改変なし) | draw.io で図を作るとき |
 | `scripts/drawio_svg.py` | `.drawio` → 貼れるSVGへ変換 | 同上 |
@@ -400,6 +431,7 @@ PPTX が必須なら最初から `pptx` スキルで作る。
 | `assets/slide-template.html` | 1枚の骨格 | 実装時 |
 | `scripts/init_deck.py` | 骨格生成 | 手順2 |
 | `scripts/check_deck.py` | 決定的検査 + スクショ + ビューア同期 | 毎ラウンド |
+| `scripts/test_space_metrics.py` | 余白union・群化比・最大空白・DOM構図契約の自己チェック (ブラウザ不要) | 余白計測を触ったとき |
 | `scripts/export_pdf.py` | 16:9 の固定PDF出力 (指定書体が使われたかを検査する) | 納品時 |
 | `scripts/bundle_deck.py` | デッキ一式を1枚のHTMLに畳む | 渡すとき |
 | `scripts/review_server.py` | デッキを配信し、DOM 指定を JSON に落とす | 手順7・8 |

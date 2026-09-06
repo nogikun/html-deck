@@ -13,6 +13,7 @@ docs/*
 
 __pycache__/
 node_modules/
+.html-deck-runtime/
 
 # テスト用
 work

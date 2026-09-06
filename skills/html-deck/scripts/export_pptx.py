@@ -497,7 +497,8 @@ def main() -> int:
         ir_path = Path(fh.name)
     try:
         subprocess.run(
-            [node, str(EMITTER), "--input", str(ir_path), "--output", str(output)],
+            [node, str(EMITTER), "--input", str(ir_path), "--output", str(output),
+             "--package-root", str(deck if (deck / "node_modules" / "pptxgenjs").is_dir() else PROJECT_ROOT)],
             cwd=PROJECT_ROOT,
             check=True,
         )

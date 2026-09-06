@@ -10,10 +10,8 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
@@ -33,70 +31,22 @@ def utf8_io() -> None:
             pass          # 差し替えられたストリームなら諦める (出力の問題でしかない)
 
 
-def script_cmd(script: Path) -> list[str]:
-    """スクリプトを起動するコマンド。
-
-    check_deck.py と export_pdf.py は PEP 723 ヘッダ (`# /// script`) を持っていて、
-    依存 (playwright / pypdf) を `uv run` が解決する前提で書かれている。
-    sys.executable で叩くと ModuleNotFoundError で落ちるので、ヘッダのある
-    スクリプトは uv 経由にする。uv が無い環境では素の python に落として、
-    そこで出るエラーをそのまま呼び出し側に見せる。
-    """
-    head = script.read_text(encoding="utf-8", errors="replace")[:400]
-    if "# /// script" in head and (uv := shutil.which("uv")):
-        return [
-            uv, "run", "--quiet", "--no-project", "--no-managed-python",
-            "--python", sys.executable, str(script),
-        ]
-    return [sys.executable, str(script)]
+def runtime_python(root: Path | None) -> Path | None:
+    """Return the deck-local Python, if its runtime has been provisioned."""
+    if root is None:
+        return None
+    runtime = root / ".html-deck-runtime"
+    candidates = (
+        runtime / "Scripts" / "python.exe",
+        runtime / "bin" / "python",
+    )
+    return next((path for path in candidates if path.is_file()), None)
 
 
-def _writable_dir(path: Path) -> bool:
-    """Return whether *path* can be used as a uv cache directory."""
-    try:
-        path.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(prefix=".html-deck-write-", dir=path):
-            pass
-    except OSError:
-        return False
-    return True
-
-
-def _uv_cache_dir(uv: str, env: dict[str, str]) -> Path:
-    """Use uv's cache unless it is unusable, then use a writable temp cache.
-
-    Some Windows installations expose a uv cache directory that exists but is
-    not writable by the current process.  uv reports that as a cache
-    initialization failure before the export script starts.  Asking uv for
-    its normal location keeps macOS/Linux behavior unchanged; the fallback is
-    deliberately shared so repeated exports do not redownload dependencies.
-    """
-    configured = env.get("UV_CACHE_DIR")
-    if configured:
-        candidates = [Path(configured)]
-    else:
-        try:
-            probe = subprocess.run(
-                [uv, "cache", "dir"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=False,
-                timeout=5,
-            )
-            candidates = [Path(probe.stdout.strip())] if probe.stdout.strip() else []
-        except (OSError, subprocess.SubprocessError):
-            candidates = []
-
-    for candidate in candidates:
-        if _writable_dir(candidate):
-            return candidate
-
-    fallback = Path(tempfile.gettempdir()) / "html-deck-uv-cache"
-    if _writable_dir(fallback):
-        return fallback
-    return Path(tempfile.mkdtemp(prefix="html-deck-uv-cache-"))
+def script_cmd(script: Path, root: Path | None = None) -> list[str]:
+    """Run deck scripts with the deck-local runtime; never route through uv."""
+    python = runtime_python(root) or Path(sys.executable)
+    return [str(python), str(script)]
 
 
 def run_script(script: Path, *args: str, timeout: float | None = None):
@@ -108,33 +58,8 @@ def run_script(script: Path, *args: str, timeout: float | None = None):
     ここで欲しいのは呼び出し側へ見せるログであって、1文字の正確さではない。
     """
     env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
-    cmd = script_cmd(script)
-    if len(cmd) > 1 and cmd[1] == "run":
-        env["UV_CACHE_DIR"] = str(_uv_cache_dir(cmd[0], env))
-    full_cmd = cmd + [str(a) for a in args]
-    result = subprocess.run(full_cmd,
-                            capture_output=True, text=True,
-                            encoding="utf-8", errors="replace",
-                            env=env, timeout=timeout)
-    if len(cmd) <= 1 or cmd[1] != "run" or result.returncode == 0:
-        return result
-
-    # A cache can pass a simple write probe while uv still cannot read one of
-    # its internal entries. Retry only that startup failure; export itself is
-    # not run until uv has finished creating the environment.
-    log = f"{result.stdout}\n{result.stderr}"
-    cache_failure = re.search(
-        r"(?:cache|sdists|environments).*?(?:operation not permitted|permission denied|access is denied|failed to open)",
-        log,
-        re.IGNORECASE | re.DOTALL,
-    )
-    fallback = Path(tempfile.gettempdir()) / "html-deck-uv-cache"
-    if not cache_failure or Path(env["UV_CACHE_DIR"]).resolve() == fallback.resolve():
-        return result
-    if not _writable_dir(fallback):
-        return result
-    env["UV_CACHE_DIR"] = str(fallback)
-    return subprocess.run(full_cmd,
+    root = Path(args[0]) if args and (Path(args[0]) / "slides").is_dir() else None
+    return subprocess.run(script_cmd(script, root) + [str(a) for a in args],
                           capture_output=True, text=True,
                           encoding="utf-8", errors="replace",
                           env=env, timeout=timeout)

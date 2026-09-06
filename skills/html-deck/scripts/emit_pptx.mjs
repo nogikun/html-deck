@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
-import { fileURLToPath } from "node:url";
-import PptxGenJS from "pptxgenjs";
+import path from "node:path";
+import { createRequire } from "node:module";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const args = new Map();
 for (let i = 2; i < process.argv.length; i += 1) {
@@ -11,10 +12,16 @@ for (let i = 2; i < process.argv.length; i += 1) {
 
 const input = args.get("--input");
 const output = args.get("--output");
+const packageRoot = args.get("--package-root");
 if (!input || !output) {
   console.error("usage: emit_pptx.mjs --input deck-ir.json --output deck.pptx");
   process.exit(2);
 }
+
+const requirePptx = packageRoot
+  ? createRequire(pathToFileURL(path.join(path.resolve(packageRoot), "package.json")))
+  : createRequire(import.meta.url);
+const PptxGenJS = requirePptx("pptxgenjs");
 
 const ir = JSON.parse(fs.readFileSync(input, "utf8"));
 const pptx = new PptxGenJS();

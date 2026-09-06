@@ -186,8 +186,12 @@ def run_export(root: Path, script: str, *args: str) -> dict:
     index.html を file:// で開いた場合は、起動方法をポップアップで案内する。
     """
     here = Path(__file__).resolve().parent
-    ext, content_type = (("pdf", "application/pdf") if script == "export_pdf.py"
-                         else ("html", "text/html; charset=utf-8"))
+    if script == "export_pdf.py":
+        ext, content_type = "pdf", "application/pdf"
+    elif script == "export_pptx.py":
+        ext, content_type = "pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    else:
+        ext, content_type = "html", "text/html; charset=utf-8"
     filename = f"{re.sub(r'[^A-Za-z0-9._-]+', '-', root.name).strip('.-') or 'deck'}.{ext}"
     with tempfile.TemporaryDirectory(prefix="html-deck-export-") as tmp:
         out_path = Path(tmp) / filename
@@ -349,10 +353,12 @@ def make_handler(root: Path, token: str):
                 if kind == "pdf":
                     res = run_export(root, "export_pdf.py",
                                      *(["--allow-font-fallback"] if payload.get("force") else []))
+                elif kind == "pptx":
+                    res = run_export(root, "export_pptx.py")
                 elif kind == "html":
                     res = run_export(root, "bundle_deck.py")
                 else:
-                    return self._json({"error": f"pdf か html: {kind!r}"}, 400)
+                    return self._json({"error": f"pdf、pptx、html のいずれか: {kind!r}"}, 400)
                 print(f'[export] {kind} {"ok" if res["ok"] else "失敗"}', flush=True)
                 if res["ok"]:
                     return self._download(res)

@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
@@ -50,6 +51,54 @@ def script_cmd(script: Path) -> list[str]:
     return [sys.executable, str(script)]
 
 
+def _writable_dir(path: Path) -> bool:
+    """Return whether *path* can be used as a uv cache directory."""
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(prefix=".html-deck-write-", dir=path):
+            pass
+    except OSError:
+        return False
+    return True
+
+
+def _uv_cache_dir(uv: str, env: dict[str, str]) -> Path:
+    """Use uv's cache unless it is unusable, then use a writable temp cache.
+
+    Some Windows installations expose a uv cache directory that exists but is
+    not writable by the current process.  uv reports that as a cache
+    initialization failure before the export script starts.  Asking uv for
+    its normal location keeps macOS/Linux behavior unchanged; the fallback is
+    deliberately shared so repeated exports do not redownload dependencies.
+    """
+    configured = env.get("UV_CACHE_DIR")
+    if configured:
+        candidates = [Path(configured)]
+    else:
+        try:
+            probe = subprocess.run(
+                [uv, "cache", "dir"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+                timeout=5,
+            )
+            candidates = [Path(probe.stdout.strip())] if probe.stdout.strip() else []
+        except (OSError, subprocess.SubprocessError):
+            candidates = []
+
+    for candidate in candidates:
+        if _writable_dir(candidate):
+            return candidate
+
+    fallback = Path(tempfile.gettempdir()) / "html-deck-uv-cache"
+    if _writable_dir(fallback):
+        return fallback
+    return Path(tempfile.mkdtemp(prefix="html-deck-uv-cache-"))
+
+
 def run_script(script: Path, *args: str, timeout: float | None = None):
     """同梱スクリプトを起動して結果を返す。**文字コードは UTF-8 に固定する。**
 
@@ -59,7 +108,10 @@ def run_script(script: Path, *args: str, timeout: float | None = None):
     ここで欲しいのは呼び出し側へ見せるログであって、1文字の正確さではない。
     """
     env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
-    return subprocess.run(script_cmd(script) + [str(a) for a in args],
+    cmd = script_cmd(script)
+    if len(cmd) > 1 and cmd[1] == "run":
+        env["UV_CACHE_DIR"] = str(_uv_cache_dir(cmd[0], env))
+    return subprocess.run(cmd + [str(a) for a in args],
                           capture_output=True, text=True,
                           encoding="utf-8", errors="replace",
                           env=env, timeout=timeout)

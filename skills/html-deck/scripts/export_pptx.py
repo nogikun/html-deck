@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -297,6 +298,25 @@ EXTRACT_IR_JS = r"""
   const svgData = (svg) => {
     const clone = svg.cloneNode(true);
     clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    // PowerPoint does not load the source page's <style> into an SVG image.
+    // Copy the computed SVG properties inline so class/variable-based artwork
+    // keeps its colors instead of falling back to SVG's default black.
+    const svgProperties = [
+      "fill", "fill-opacity", "stroke", "stroke-opacity", "stroke-width",
+      "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "stroke-dashoffset",
+      "opacity", "font-family", "font-size", "font-weight", "font-style",
+      "letter-spacing", "text-anchor", "dominant-baseline",
+    ];
+    const sourceNodes = [svg, ...svg.querySelectorAll("*")];
+    const targetNodes = [clone, ...clone.querySelectorAll("*")];
+    sourceNodes.forEach((source, index) => {
+      const target = targetNodes[index];
+      const style = getComputedStyle(source);
+      for (const property of svgProperties) {
+        const value = style.getPropertyValue(property);
+        if (value) target.setAttribute(property, value);
+      }
+    });
     const viewBox = svg.viewBox?.baseVal;
     if (viewBox?.width > 0 && viewBox?.height > 0) {
       clone.setAttribute("preserveAspectRatio", clone.getAttribute("preserveAspectRatio") || "xMidYMid meet");
@@ -418,12 +438,18 @@ def main() -> int:
         args.write_ir.parent.mkdir(parents=True, exist_ok=True)
         args.write_ir.write_text(json.dumps(ir, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    node = args.node
+    if not Path(node).is_absolute() and Path(node).name.lower() in {
+        "node", "node.exe", "nodejs", "nodejs.exe",
+    }:
+        node = shutil.which(node) or node
+
     with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8", delete=False) as fh:
         json.dump(ir, fh, ensure_ascii=False)
         ir_path = Path(fh.name)
     try:
         subprocess.run(
-            [args.node, str(EMITTER), "--input", str(ir_path), "--output", str(output)],
+            [node, str(EMITTER), "--input", str(ir_path), "--output", str(output)],
             cwd=SCRIPT_DIR.parents[2],
             check=True,
         )

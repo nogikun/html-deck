@@ -11,6 +11,7 @@
 - `contact_sheet`: 全枚を並べた1枚のPNG (これを最初に見る)
 - `storyboard`: 各枚の claim / job / 問い(入)→問い(出)
 - `deck_goal`, `takeaway`, `audience`
+- `layout_metrics`: report.json の全枚の `metrics.space` / `metrics.layout`
 - `accepted`: 前ラウンドで確定した構成判断
 - `user_intents`: **ユーザー本人がレビューで確定させた意図**。`accepted` の中でも別格
 
@@ -29,6 +30,9 @@
    前置きが3枚、結論が半枚、という配分になっていないか。
 6. **決着** — 最後の1枚が最初に立てた問いを解いているか。`takeaway` がそこにあるか。
 7. **声** — 全枚が同じデッキに見えるか。色・書体・余白の扱いが1枚だけ違っていないか。
+8. **空白の配分** — `metrics.layout` に block が残っていないことを前提に、各枚の空白率の
+   波が導入・展開・結論の役割と合っているかを見る。`space` の高い値だけを理由に埋めず、
+   `layout_child_shift` や過大な接続スロットが残っている場合は `pass` にしない。
 
 ## 出す判断
 

@@ -53,6 +53,11 @@ python3 <skill>/scripts/review_thread.py <deck> post <id> --state proposed \
 `--text` はユーザーが読む。**何をどう変えたかを2〜3行**。専門用語で固めない。
 `block` が増えていたら `proposed` にしない。戻してから出す。
 
+`layout_overlap`、`composition_off_center`、`layout_child_shift`、`connector_track_wide`、
+`redundant_gap_owner` を直すときは、兄弟の `left` / `transform` を個別に動かさない。
+対象スライドの親フレームの幅・grid/flexトラック・gapの所有者を直し、同じスライドを
+再検査する。親の変更が他の枚にも必要そうなら、その場で共有CSSを触らず `escalate` に上げる。
+
 ## テーマに関わるときは上げる
 
 「文字が小さい」「行間が詰まっている」「色が薄い」は、**その枚だけの話とは限らない**。

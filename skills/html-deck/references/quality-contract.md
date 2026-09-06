@@ -109,6 +109,47 @@ storyboard の `visual` 列に戻って決める。図の方式の選び方は `
 - **どの要素も 0–1600 / 0–900 の外へ出ない。** 出たら block。
   `overflow:hidden` で隠れているだけの状態は、PDF出力や別環境で表に出る
 
+### 余白の意味構造（実験的計測）
+
+`check_deck.py` は、文字のインク量 (`text_area_ratio`) と別に、意味要素のunion矩形から
+`metrics.space` を返す。背景・装飾は除外し、画像は表示矩形を占有とみなす。
+
+- `occupied_ratio` / `whitespace_ratio`: 意味要素の面積と空白の面積
+- `outer_margin_min_px`: 意味要素からキャンバス端までの最小距離
+- `group_separation_ratio`: 群の外側距離 / 群の内側距離。1.5未満は review
+- `largest_void_ratio`: 32×18セルで見た最大の空白連結領域
+- `entry_candidate_count`: 面積・文字サイズ・コントラスト・孤立度・primary役割の代理スコア
+- `gap_rhythm_cv`: 主要要素間隔の変動係数。初期実装では info のみ
+
+必要なスライドだけ、`data-space-role`、`data-space-group`、`data-space-intent`、
+`data-space-profile`を宣言する。`edge`、`hero`、`breath`、`full-bleed`は意図した空白や
+端までの配置を示す。これは自動レイアウト指示ではなく、数値を人の判断に戻すための補助情報。
+余白率・群化比・最大空白の数値は block にはせず、既存の可読性・はみ出し検査を優先する。
+
+### 構図フレームの一所有者原則
+
+上の `metrics.space` は「どれだけ占有したか」を見る。一方、DOMの構図が壊れているかは
+`metrics.layout` で見る。構図フレームの内側幅を `A`、兄弟内容を `C_i`、親の分離スロットを
+`G_i` とすると、横方向は次を満たす。
+
+```text
+A = Σ C_i + Σ G_i
+```
+
+`G` を親の `gap` と子の `margin` の両方で作らない。実際の間隔は
+`親gap + 前の子の外側margin + 次の子の外側margin` なので、同じ隙間を12px以上ずつ二重に
+所有したら `redundant_gap_owner` を block にする。
+
+比較・表・大きな構図の中央はキャンバス中央から16px以内に置く。兄弟の実矩形の重なりは
+交差面積64px²以上かつ小さい側の2%以上で `layout_overlap`。子群のunion中心が親の内側中心から
+16pxを超えて片寄ると `layout_child_shift`。矢印・線・`connector`・`middle`は接続スロットであり、
+軸方向96pxまたは親の内側幅の12%を超えると `connector_track_wide`。いずれも好みではなく、
+親が空間を一度だけ配分しているかの検査なので block とする。
+
+この検査の対象は、`data-space-frame` を付けた領域、表・比較クラス、または幅720px以上の大きな
+grid/flex。小さなカード内部まで構図フレームとみなさない。詳細な式、中央配置、修復順序、
+例外属性は `references/whitespace-theory.md` を正本とする。
+
 ## 色
 
 - 本文と背景のコントラスト比 **4.5:1** 以上。大きい文字 (32px以上、または24px以上の太字) は **3.0:1** 以上

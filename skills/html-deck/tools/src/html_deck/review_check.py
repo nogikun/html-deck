@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """レビュー中の検査を、契機に応じた濃さで回す薄いラッパ。
 
-    uvx --from <このスキルのディレクトリ>/tools html-deck-recheck <deck> --thread fb-003 --level brief   # 修正のたび
-    uvx --from <このスキルのディレクトリ>/tools html-deck-recheck <deck> --thread fb-003 --level full    # マージ前
-    uvx --from <このスキルのディレクトリ>/tools html-deck-recheck <deck> --level deck                    # theme を触った後
+    uv run --project <このスキルのディレクトリ>/tools html-deck-recheck <deck> --thread fb-003 --level brief   # 修正のたび
+    uv run --project <このスキルのディレクトリ>/tools html-deck-recheck <deck> --thread fb-003 --level full    # マージ前
+    uv run --project <このスキルのディレクトリ>/tools html-deck-recheck <deck> --level deck                    # theme を触った後
 
 やること:
   1. check_deck.py を適切な引数で呼ぶ (brief = 該当枚のみ・スクショなし)

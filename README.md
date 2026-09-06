@@ -57,7 +57,7 @@ npx skills add nogikun/html-deck
 - Google Chrome または Chromium（検査・PDF・PPTX が使用）
 
 Python のツールは `skills/html-deck/tools/` に uv プロジェクトとして入っています。
-Python 本体（3.14）と Playwright / pypdf は `tools/uv.lock` で固定してあり、`uvx` が実行時に用意します。
+Python 本体（3.14）と Playwright / pypdf は `tools/uv.lock` で固定してあり、`uv run --project skills/html-deck/tools` が初回に `tools/.venv` へ用意します。
 PptxGenJS だけは uv の管轄外なので、初回の PPTX 書き出しで `<プロジェクト>/.html-deck-runtime/` に入ります。
 事前の `uv sync` も `npm install` も要りません。
 
@@ -88,7 +88,7 @@ direnv allow
 スクリプトを直接使う場合は、出力先とタイトルを指定します。
 
 ```bash
-uvx --from skills/html-deck/tools html-deck-init ./output/product-proposal-deck \
+uv run --project skills/html-deck/tools html-deck-init ./output/product-proposal-deck \
   --title "プロダクト提案"
 ```
 
@@ -110,7 +110,7 @@ output/product-proposal-deck/
 ### 3. 検査する
 
 ```bash
-uvx --from skills/html-deck/tools html-deck-check ./output/product-proposal-deck
+uv run --project skills/html-deck/tools html-deck-check ./output/product-proposal-deck
 ```
 
 検査ごとに `.loop/round-N/` へ次が保存されます。
@@ -122,8 +122,8 @@ uvx --from skills/html-deck/tools html-deck-check ./output/product-proposal-deck
 `block` が残っている間は、先にレイアウトや可読性の問題を修正してください。特定のスライドだけ確認したい場合や画像を省略したい場合は、次のように指定できます。
 
 ```bash
-uvx --from skills/html-deck/tools html-deck-check ./output/product-proposal-deck --slide 03
-uvx --from skills/html-deck/tools html-deck-check ./output/product-proposal-deck --no-shots
+uv run --project skills/html-deck/tools html-deck-check ./output/product-proposal-deck --slide 03
+uv run --project skills/html-deck/tools html-deck-check ./output/product-proposal-deck --no-shots
 ```
 
 検査は `index.html` のスライド一覧もファイル名順に更新します。ビューアは `index.html` を Chrome などのブラウザで直接開いて確認できます。ローカルサーバーは不要です。
@@ -133,7 +133,7 @@ uvx --from skills/html-deck/tools html-deck-check ./output/product-proposal-deck
 構造が複雑な図は draw.io で作成できます。変換後の SVG は `<img>` ではなく、内容をスライド HTML の `<figure>` 内に直接貼り込みます。これにより、図内の文字や線も検査対象になります。
 
 ```bash
-uvx --from skills/html-deck/tools html-deck-drawio \
+uv run --project skills/html-deck/tools html-deck-drawio \
   ./output/product-proposal-deck/figures/architecture.drawio \
   --title "処理の全体像"
 ```
@@ -145,7 +145,7 @@ draw.io アプリが見つからない場合は、スクリプトの案内に従
 生成したデッキをブラウザで開き、スライド上の要素を直接指して直しを出せます。
 
 ```bash
-uvx --from skills/html-deck/tools html-deck-review ./output/product-proposal-deck --open
+uv run --project skills/html-deck/tools html-deck-review ./output/product-proposal-deck --open
 ```
 
 表示された URL を開き、`E` キーでレビューモードに入ります。要素にカーソルを合わせると
@@ -183,7 +183,7 @@ AI エージェントがそのまま読んで修正できます。会話も状�
 すべての検査と目視確認が済んだら、固定レイアウトの PDF を出力します。
 
 ```bash
-uvx --from skills/html-deck/tools html-deck-pdf ./output/product-proposal-deck \
+uv run --project skills/html-deck/tools html-deck-pdf ./output/product-proposal-deck \
   -o ./output/product-proposal.pdf
 ```
 
@@ -199,7 +199,7 @@ PptxGenJS を使い、Chrome が計算した座標をテキスト行・背景図
 PowerPoint側で再現するのではなく、既存の1600×900pxレイアウトとブラウザ上の改行位置を先に確定してから出力します。
 
 ```bash
-uvx --from skills/html-deck/tools html-deck-pptx ./work/ctfp-for-new-engineers-deck \
+uv run --project skills/html-deck/tools html-deck-pptx ./work/ctfp-for-new-engineers-deck \
   -o ./work/ctfp-for-new-engineers-deck/ctfp-for-new-engineers-deck.pptx
 ```
 
@@ -212,7 +212,7 @@ uvx --from skills/html-deck/tools html-deck-pptx ./work/ctfp-for-new-engineers-d
 人に送るだけなら、1枚の HTML に畳むほうが手軽です。外部参照が無いのでそのまま添付できます。
 
 ```bash
-uvx --from skills/html-deck/tools html-deck-bundle ./output/product-proposal-deck
+uv run --project skills/html-deck/tools html-deck-bundle ./output/product-proposal-deck
 ```
 
 どちらもレビュー画面のツールバーのボタンから実行できます（サーバー稼働中のみ）。

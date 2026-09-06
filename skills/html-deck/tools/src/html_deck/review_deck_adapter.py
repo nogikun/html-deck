@@ -35,7 +35,7 @@ def script_cmd(module: str) -> list[str]:
     """同じパッケージのコマンドを子プロセスで叩く。
 
     同じ環境の中にいるので `python -m` で足りる。ランタイムを探す処理は
-    もう要らない — Python 側は uvx / uv sync が用意している。
+    もう要らない — Python 側は uv run --project / uv sync が用意している。
     """
     return [sys.executable, "-m", f"html_deck.{module}"]
 

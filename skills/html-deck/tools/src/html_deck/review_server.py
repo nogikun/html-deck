@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """デッキをローカル配信し、ブラウザ上の DOM 指定をフィードバック JSON に落とす。
 
-    uvx --from <このスキルのディレクトリ>/tools html-deck-review <deck-dir> [--open] [--port N]
+    uv run --project <このスキルのディレクトリ>/tools html-deck-review <deck-dir> [--open] [--port N]
 
 なぜサーバが要るか:
   file:// では親ページから iframe の contentDocument に到達できない (Chrome で実測、

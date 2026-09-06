@@ -2,8 +2,8 @@
 """既存のHTMLスライドを実測し、PptxGenJSの編集可能な部品へ変換する。
 
 使い方 (事前のインストールは要らない。初回だけ自分でランタイムを作る):
-    uvx --from <このスキルのディレクトリ>/tools html-deck-pptx <deck-dir>
-    uvx --from <このスキルのディレクトリ>/tools html-deck-pptx <deck-dir> -o output.pptx
+    uv run --project <このスキルのディレクトリ>/tools html-deck-pptx <deck-dir>
+    uv run --project <このスキルのディレクトリ>/tools html-deck-pptx <deck-dir> -o output.pptx
 
 変換対象は TextLine / Shape / Line / Table / SVG / Image の最小集合。CSSレイアウトはChromeに解決させ、
 PptxGenJSには計算済みの矩形だけを渡す。SVGは1つのSVG画像として保持する。

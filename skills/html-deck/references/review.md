@@ -11,11 +11,11 @@
 `Bash` を `run_in_background: true` で**2本**起動する。
 
 ```bash
-uvx --from <このスキルのディレクトリ>/tools html-deck-review <deck-dir> --open
+uv run --project <このスキルのディレクトリ>/tools html-deck-review <deck-dir> --open
 ```
 
 ```bash
-uvx --from <このスキルのディレクトリ>/tools html-deck-wait <deck-dir> --timeout 1800
+uv run --project <このスキルのディレクトリ>/tools html-deck-wait <deck-dir> --timeout 1800
 ```
 
 ユーザーは `E` でレビューモードに入り、要素をクリックする。クリックした要素が
@@ -69,8 +69,8 @@ uvx --from <このスキルのディレクトリ>/tools html-deck-wait <deck-dir
 `html-deck-thread context <id>` の出力を渡す。それで自己完結する。
 
 ```bash
-uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> list          # いまの状態
-uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> context fb-003 # サブに渡す束
+uv run --project <このスキルのディレクトリ>/tools html-deck-thread <deck> list          # いまの状態
+uv run --project <このスキルのディレクトリ>/tools html-deck-thread <deck> context fb-003 # サブに渡す束
 ```
 
 **スレッドをまたいで文脈を運ばない。** 指摘1と指摘2に共通の文脈は無い。
@@ -125,7 +125,7 @@ uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> 
 ## 返し方
 
 ```bash
-uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> post fb-003 --state proposed \
+uv run --project <このスキルのディレクトリ>/tools html-deck-thread <deck> post fb-003 --state proposed \
   --text "5行目の「3ヶ月」を「6ヶ月」に直し、出典を数字の直後に置いた。" \
   --change "slides/03-evidence.html:5 3ヶ月 → 6ヶ月"
 ```
@@ -138,7 +138,7 @@ uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> 
 サブは `theme.css` を書けない。書きたくなったら `escalate` する。
 
 ```bash
-uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> escalations   # 台帳を見る
+uv run --project <このスキルのディレクトリ>/tools html-deck-thread <deck> escalations   # 台帳を見る
 ```
 
 | 台帳の状態 | 返答 | 行動 |
@@ -148,15 +148,15 @@ uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> 
 | `other` | 集約しない | 個別に判断 |
 
 ```bash
-uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> decide --key body_font_small \
+uv run --project <このスキルのディレクトリ>/tools html-deck-thread <deck> decide --key body_font_small \
   --status applied_by_main --note "2枚で同じ指摘なので theme.css の本文を22→24pxにした"
 ```
 
 **`theme.css` を触ったら、その後に必ず2つやる。**
 
 ```bash
-uvx --from <このスキルのディレクトリ>/tools html-deck-recheck <deck> --level deck      # 全枚を検査する
-uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> notify \
+uv run --project <このスキルのディレクトリ>/tools html-deck-recheck <deck> --level deck      # 全枚を検査する
+uv run --project <このスキルのディレクトリ>/tools html-deck-thread <deck> notify \
   --text "theme の本文を22→24pxにした。確定済みのこの枚も字が大きくなっている。"
 ```
 
@@ -182,8 +182,8 @@ uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> 
 新しいレビューを始めるときや批評サブエージェントを起動するときは、後者を渡す。
 
 ```bash
-uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> brief                    # 全枚
-uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> brief --slide 03-evidence
+uv run --project <このスキルのディレクトリ>/tools html-deck-thread <deck> brief                    # 全枚
+uv run --project <このスキルのディレクトリ>/tools html-deck-thread <deck> brief --slide 03-evidence
 ```
 
 **批評サブエージェントを起動するときは、この出力を `user_intents` として必ず渡す。**

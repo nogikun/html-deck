@@ -1194,12 +1194,15 @@ function onKey(e) { handleKey(e); }
 function shellQuote(s) { return "'" + s.replace(/'/g, "'\\''") + "'"; }
 function reviewPrompt() {
   const path = decodeURIComponent(location.pathname || "").replace(/[\\/]([^\\/]*)$/, "") || ".";
-  const command = `python3 skills/html-deck/scripts/review_server.py ${shellQuote(path)}`;
+  // 実行環境を指定しない (`python3 …`) と、pyenv の shim や素の 3.12 に当たって
+  // 依存ごと外れる。デッキの依存は tools/pyproject.toml にしか無いので、
+  // 必ず uv 経由で、コマンド名で呼ぶ。--open まで含めて1回で開くようにする。
+  const command = `uv run --project skills/html-deck/tools html-deck-review ${shellQuote(path)} --open`;
   return [
     "このデッキのDOMレビューとPDF/PPTX/1枚HTMLの書き出しを有効にしてください。",
     "html-deckリポジトリのルートで、次のコマンドを実行してください。",
     command,
-    "表示された review URL をブラウザで開いてください。",
+    "ブラウザが自動で開きます。開かなければ、表示された review URL を開いてください。",
   ].join("\n");
 }
 function showReviewServerPrompt() {

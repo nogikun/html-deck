@@ -2,7 +2,7 @@
 """固定1600x900キャンバスでHTMLスライドを実測し、決定的な合否と数値指標を返す。
 
 使い方:
-    uvx --from <このスキルのディレクトリ>/tools html-deck-check <deck-dir> [--round N] [--slide 03] [--no-shots]
+    uv run --project <このスキルのディレクトリ>/tools html-deck-check <deck-dir> [--round N] [--slide 03] [--no-shots]
 
 やること:
   1. slides/*.html を走査して index.html のスライド一覧を再生成する
@@ -383,6 +383,23 @@ EXTRACT_JS = r"""
     spaceItems.push({
       kind: 'figure', sel: shortSel(svg), x: r.x, y: r.y, w: r.width, h: r.height,
       role, group, intent, inFigure: false, semantic: !['background', 'decoration'].includes(role),
+    });
+  });
+
+  // ---- 図 (HTMLとCSSで組んだ塊)
+  // SVG でもラスタでもない図は形から判別できないので、作者の明示だけを信じる。
+  // これが無いと、divで組んだ比較表や流れ図が「図が無い枚」に数えられ、
+  // 検査を通すためだけの飾りSVGを足す方向へ動く。
+  document.querySelectorAll('[data-space-role="figure"]').forEach((el) => {
+    if (el.tagName === 'IMG' || el.closest('svg')) return;   // 上の2つで拾う
+    const r = el.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4) return;
+    figures.push({
+      kind: 'block',
+      sel: shortSel(el),
+      w: +r.width.toFixed(1), h: +r.height.toFixed(1),
+      named: !!(el.getAttribute('aria-label') || el.querySelector('figcaption')),
+      hidden: el.getAttribute('aria-hidden') === 'true',
     });
   });
 
@@ -1184,7 +1201,7 @@ def evaluate(data: dict, gates: dict, source: str, slide_id: str, theme_css: str
                 add("review", "figure_hairline",
                     f"{fig['sel']} に実効 {fig['minStroke']}px の線がある。"
                     f"{gates['figure_min_stroke_px']}px 未満は投影とPDFで消える。", selector=fig["sel"])
-        else:
+        elif fig["kind"] == "img":
             if not fig["naturalW"]:
                 add("block", "image_not_loaded",
                     f"{fig['sel']} の画像が読み込めていない ({fig['src']})。", selector=fig["sel"])

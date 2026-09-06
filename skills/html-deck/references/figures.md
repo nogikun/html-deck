@@ -169,7 +169,7 @@
 5. SVGへ書き出す
 
    ```bash
-   uvx --from <このスキルのディレクトリ>/tools html-deck-drawio <deck>/figures/<name>.drawio --title "図の説明"
+   uv run --project <このスキルのディレクトリ>/tools html-deck-drawio <deck>/figures/<name>.drawio --title "図の説明"
    ```
 
    `width`/`height` を外して `viewBox` を残し、`color-scheme` を除き、

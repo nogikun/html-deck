@@ -25,6 +25,7 @@ import secrets
 import subprocess
 import sys
 import threading
+import tempfile
 import webbrowser
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
@@ -182,13 +183,21 @@ def run_export(root: Path, script: str, *args: str) -> dict:
     """書き出し系スクリプトをそのまま叩く。ロジックはサーバに持たせない。
 
     ブラウザから起動できるのはサーバが動いているときだけ。デッキ同梱の
-    index.html を file:// で開いた場合は、そもそも押すボタンが出ない。
+    index.html を file:// で開いた場合は、起動方法をポップアップで案内する。
     """
     here = Path(__file__).resolve().parent
-    try:
-        proc = adapter.run_script(here / script, root, *args, timeout=600)
-    except Exception as e:      # noqa: BLE001 - 起動できない理由は全部ここでボタンに返す
-        return {"ok": False, "error": f"{script} を実行できなかった: {type(e).__name__}: {e}"}
+    ext, content_type = (("pdf", "application/pdf") if script == "export_pdf.py"
+                         else ("html", "text/html; charset=utf-8"))
+    filename = f"{re.sub(r'[^A-Za-z0-9._-]+', '-', root.name).strip('.-') or 'deck'}.{ext}"
+    with tempfile.TemporaryDirectory(prefix="html-deck-export-") as tmp:
+        out_path = Path(tmp) / filename
+        try:
+            proc = adapter.run_script(here / script, root, "-o", out_path, *args, timeout=600)
+        except Exception as e:      # noqa: BLE001 - 起動できない理由は全部ここでボタンに返す
+            return {"ok": False, "error": f"{script} を実行できなかった: {type(e).__name__}: {e}"}
+        if proc.returncode == 0 and not out_path.is_file():
+            return {"ok": False, "error": f"{script} は出力ファイルを作成しなかった"}
+        data = out_path.read_bytes() if proc.returncode == 0 else None
     out = "\n".join(l for l in (proc.stdout or "").splitlines() if l.strip())
     err = "\n".join(l for l in (proc.stderr or "").splitlines() if l.strip())
     if proc.returncode != 0:
@@ -196,7 +205,8 @@ def run_export(root: Path, script: str, *args: str) -> dict:
     # 成功でも警告は出る (畳めなかった参照など)。捨てるとブラウザ側からは
     # 何も無かったように見える。stderr を先に置いて、最後の行が結果になるようにする
     # (ブラウザは最後の1行をトーストに出す)。
-    return {"ok": True, "log": "\n".join(x for x in (err, out) if x)[-600:]}
+    return {"ok": True, "log": "\n".join(x for x in (err, out) if x)[-600:],
+            "data": data, "filename": filename, "content_type": content_type}
 
 
 def set_state(root: Path, payload: dict) -> dict:
@@ -229,6 +239,16 @@ def make_handler(root: Path, token: str):
             body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
             self.send_response(code)
             self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _download(self, res):
+            body = res.pop("data")
+            self.send_response(200)
+            self.send_header("Content-Type", res["content_type"])
+            self.send_header("Content-Disposition", f'attachment; filename="{res["filename"]}"')
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -334,6 +354,8 @@ def make_handler(root: Path, token: str):
                 else:
                     return self._json({"error": f"pdf か html: {kind!r}"}, 400)
                 print(f'[export] {kind} {"ok" if res["ok"] else "失敗"}', flush=True)
+                if res["ok"]:
+                    return self._download(res)
                 return self._json(res, 200 if res["ok"] else 409)
 
             if u.path == "/__review/api/reply":

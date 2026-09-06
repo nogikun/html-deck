@@ -330,8 +330,8 @@
     <div class="backdrop" id="serverPromptBackdrop"></div>
     <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="serverPromptTitle">
       <button class="btn icon close" id="serverPromptClose" type="button" aria-label="閉じる">✕</button>
-      <h2 id="serverPromptTitle">DOM選択レビューにはサーバーが必要です</h2>
-      <p>file://ではスライド内のDOMを選択できません。以下のプロンプトをコピーして実行を依頼してください。</p>
+      <h2 id="serverPromptTitle">レビューと書き出しにはサーバーが必要です</h2>
+      <p>file://ではDOMレビューとPDF/1枚HTMLの書き出しができません。以下のプロンプトをコピーして実行を依頼してください。</p>
       <textarea id="serverPromptText" readonly aria-label="review_server.py の起動依頼プロンプト"></textarea>
       <button class="copy" id="serverPromptCopy" type="button">プロンプトをコピー</button>
       <p id="serverPromptStatus" aria-live="polite"></p>
@@ -710,6 +710,18 @@ async function exportAs(kind, btn) {
     const r = await api("/__review/api/export", {
       method: "POST", body: JSON.stringify({ kind, force }),
     });
+    const type = r.headers.get("Content-Type") || "";
+    if (r.ok && !type.includes("application/json")) {
+      const cd = r.headers.get("Content-Disposition") || "";
+      const name = cd.match(/filename="([^"]+)"/)?.[1]
+        || (kind === "pdf" ? "deck.pdf" : "deck.html");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(await r.blob()); a.download = name;
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      toast(`${name} をダウンロードしました`);
+      return;
+    }
     const body = await r.json();
     if (r.ok) {
       // 成功でも警告は出る (畳めなかった参照など)。黙って成功と言わない。
@@ -767,7 +779,7 @@ async function boot() {
       file: ref, title,
     }));
     // レビューはサーバが要るが、ボタンは起動方法の案内に使う。
-    for (const id of ["pins", "pdfBtn", "htmlBtn"]) $(id).hidden = true;
+    $("pins").hidden = true;
   }
   if (!slides.length) { banner("スライドがありません"); return; }
   render();
@@ -1146,7 +1158,7 @@ function reviewPrompt() {
   const path = decodeURIComponent(location.pathname || "").replace(/[\\/]([^\\/]*)$/, "") || ".";
   const command = `python3 skills/html-deck/scripts/review_server.py ${shellQuote(path)}`;
   return [
-    "このデッキのDOMレビューを有効にしてください。",
+    "このデッキのDOMレビューとPDF/1枚HTMLの書き出しを有効にしてください。",
     "html-deckリポジトリのルートで、次のコマンドを実行してください。",
     command,
     "表示された review URL をブラウザで開いてください。",
@@ -1618,8 +1630,8 @@ $("serverPromptClose").onclick = closeReviewServerPrompt;
 $("serverPromptBackdrop").onclick = closeReviewServerPrompt;
 $("serverPromptCopy").onclick = copyReviewPrompt;
 $("paneClose").onclick = () => setReview(false);
-$("pdfBtn").onclick = () => exportAs("pdf", $("pdfBtn"));
-$("htmlBtn").onclick = () => exportAs("html", $("htmlBtn"));
+$("pdfBtn").onclick = () => SERVED ? exportAs("pdf", $("pdfBtn")) : showReviewServerPrompt();
+$("htmlBtn").onclick = () => SERVED ? exportAs("html", $("htmlBtn")) : showReviewServerPrompt();
 $("themeBtn").onclick = () => setTheme(currentTheme() === "dark" ? "light" : "dark");
 $("fullscreen").onclick = async () => {
   if (!document.fullscreenElement) await document.documentElement.requestFullscreen();

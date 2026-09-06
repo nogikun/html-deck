@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Node 側の依存 (pptxgenjs) をプロジェクトの中だけに用意する。
 
-Python 側はここに無い — パッケージの依存として uv (uvx / uv sync) が入れる。
+Python 側はここに無い — パッケージの依存として uv (uv run --project / uv sync) が入れる。
 残っているのは Node だけで、uv の管轄外だからここで面倒を見る。
 
 置き場所は `<プロジェクト>/.html-deck-runtime/node/`。デッキの中には作らない —

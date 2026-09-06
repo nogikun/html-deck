@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """スレッドを読み書きする CLI。エージェント側の入口。
 
-    uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> list
-    uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> context fb-003      # サブに渡す束
-    uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> post fb-003 --state proposed \
+    uv run --project <このスキルのディレクトリ>/tools html-deck-thread <deck> list
+    uv run --project <このスキルのディレクトリ>/tools html-deck-thread <deck> context fb-003      # サブに渡す束
+    uv run --project <このスキルのディレクトリ>/tools html-deck-thread <deck> post fb-003 --state proposed \
         --text "23行目を6ヶ月に、footer に出典を追加した" \
         --change "slides/03-evidence.html:23 3ヶ月 → 6ヶ月"
-    uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> escalate fb-003 --key body_font_small \
+    uv run --project <このスキルのディレクトリ>/tools html-deck-thread <deck> escalate fb-003 --key body_font_small \
         --ask "本文22pxだと1行溢れる" --local "この枚だけ行間を詰めれば収まる"
-    uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> escalations           # メインが見る台帳
-    uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> decide --key body_font_small \
+    uv run --project <このスキルのディレクトリ>/tools html-deck-thread <deck> escalations           # メインが見る台帳
+    uv run --project <このスキルのディレクトリ>/tools html-deck-thread <deck> decide --key body_font_small \
         --status applied_by_main --note "theme.css の本文を22→24pxにした"
-    uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> notify \
+    uv run --project <このスキルのディレクトリ>/tools html-deck-thread <deck> notify \
         --text "theme の本文を22→24pxにした。この枚の見え方も変わっている"
-    uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> brief                 # 確定済みの意図
+    uv run --project <このスキルのディレクトリ>/tools html-deck-thread <deck> brief                 # 確定済みの意図
 
 **merged にする道はここに無い。** マージはユーザーがブラウザで押すもので、
 エージェントが自分で確定させられてはいけない。

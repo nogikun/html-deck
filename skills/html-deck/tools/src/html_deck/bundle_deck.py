@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """デッキ一式を1枚のHTMLに畳む。渡すときはこれ1つで済む。
 
-    uvx --from <このスキルのディレクトリ>/tools html-deck-bundle <deck-dir> [-o deck.html]
+    uv run --project <このスキルのディレクトリ>/tools html-deck-bundle <deck-dir> [-o deck.html]
 
 やること:
   1. slides/*.html を1枚ずつ読み、<link href="theme.css"> をその中身に差し替える

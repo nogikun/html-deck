@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """全スライドを 1600x900 のまま1本のPDFにまとめる。
 
-    uvx --from <このスキルのディレクトリ>/tools html-deck-pdf <deck-dir> [-o deck.pdf] [--allow-font-fallback]
+    uv run --project <このスキルのディレクトリ>/tools html-deck-pdf <deck-dir> [-o deck.pdf] [--allow-font-fallback]
 
 固定PDFは「渡した先で見た目が動かない」納品形式。Chrome は描画に使った face を
 PDF に埋め込むので、**このマシンで描けた通り**が固定される。

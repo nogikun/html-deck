@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """デッキの雛形を作る。
 
-    uvx --from <このスキルのディレクトリ>/tools html-deck-init <出力ディレクトリ> --title "デッキ名"
+    uv run --project <このスキルのディレクトリ>/tools html-deck-init <出力ディレクトリ> --title "デッキ名"
 
 作るもの:
     <dir>/deck.md        契約 (ゴール・対象・ストーリーボード) の正本

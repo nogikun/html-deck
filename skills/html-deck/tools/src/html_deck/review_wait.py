@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ユーザーの発言が現れるまで待ち、現れたら中身を出して終了する。
 
-    uvx --from <このスキルのディレクトリ>/tools html-deck-wait <deck> [--timeout 1800]
+    uv run --project <このスキルのディレクトリ>/tools html-deck-wait <deck> [--timeout 1800]
 
 なぜ要るか:
   review_server.py は止めるまで動き続けるので、「ユーザーが何か言った」という

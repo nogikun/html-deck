@@ -151,7 +151,7 @@ description: 材料(メモ・記事・調査資料・議事録・URL・口頭の
 ## 2. 骨格を作る
 
 ```bash
-uvx --from <このスキルのディレクトリ>/tools html-deck-init <出力先> --title "デッキ名"
+uv run --project <このスキルのディレクトリ>/tools html-deck-init <出力先> --title "デッキ名"
 ```
 
 出力先の既定は、材料と同じディレクトリの `<slug>-deck/`。
@@ -209,6 +209,9 @@ theme.css を決めたら以降は凍結する。触るのは「2枚以上で同
 `theme.css` を読み、自分の `<style>` にそのスライド固有のレイアウトだけを書く。
 **`:root` のトークンを再定義しない。** 1枚の都合で全枚の色が変わる。
 
+**HTMLを1行にまとめない。** 要素ごとに改行して書く。1行で吐くと、あとの局所修正
+(手順6・8) がファイル全体の書き換えになり、何を直したのか追えなくなる。
+
 レイアウトは job から決める。型を当てはめない。手がかりは `references/layout-playbook.md`。
 数値の初期値と根拠は `references/quality-contract.md`。迷ったら本文24px・見出し54px・
 外周80px・1枚420字 (手順1で場面が「話しながら」なら300字) までから始める。
@@ -240,7 +243,7 @@ draw.io を使う場合、上流スキルを `vendor/draw-io/` にそのまま�
 ## 5. 決定的検査（批評より先）
 
 ```bash
-uvx --from <このスキルのディレクトリ>/tools html-deck-check <deck-dir>
+uv run --project <このスキルのディレクトリ>/tools html-deck-check <deck-dir>
 ```
 
 1600x900 のヘッドレスChromeで全枚を実測し、はみ出し・文字切れ・文字サイズ・
@@ -278,8 +281,10 @@ gapと子marginの二重所有はDOMの実矩形で再現できるためblockで
 ## 6. 批評を受けて差し戻す（Sonnetのサブエージェント）
 
 block が 0 になったら、`Agent` ツールで批評担当を起動する。
-**必ず `model: "sonnet"` を指定する。** 実装しているのはこのセッション自身なので、
-同じモデルに採点させると自分の癖ごと見落とす。系列を分けることが目的。
+**実装しているモデルと別の系列を指定する。** 既定は `model: "sonnet"`。
+実装しているのはこのセッション自身なので、同じモデルに採点させると自分の癖ごと見落とす。
+**目的は系列を分けることであって機種名ではない。** 指定した系列が使えない環境なら、
+使える別系列で回して「批評は <モデル> で回した」と1行伝える。ここで止まらない。
 
 サブエージェントの推論の深さはツール側から指定できないので、**プロンプトの冒頭で
 「よく考えてから」と明示して思考量を上げる**。これは指定の代用であって同義ではない。
@@ -339,7 +344,8 @@ prompt:
 
 - 全軸4以上 + `deck-critic` が pass → 完成
 - 改善が2ラウンド連続で小さい → **自動で続けない。** 現物と残件を出して判断を仰ぐ
-- 4ラウンドで打ち切り
+- **2ラウンドで打ち切り。** そこで pass していなくても、現物と残件を持ってユーザーへ返す。
+  3周目以降は自分で決めずに、ユーザーが「続けて」と言ったときだけ回す
 
 返すときは、成果物の場所・ゴールに対する到達度・**直せなかった点**を明記する。
 点数だけ並べない。**返す前に自分で `index.html` を開いて目で見る** — 検査が通ったことは
@@ -350,8 +356,8 @@ prompt:
 | 形 | 出し方 | 何のため |
 | --- | --- | --- |
 | デッキ一式 | そのまま | 手直しを続ける。レビューもここから |
-| **1枚のHTML** | `uvx --from <このスキルのディレクトリ>/tools html-deck-bundle <deck>` | **人に送る。** 外部参照ゼロの1ファイルで、そのまま添付できる |
-| 固定PDF | `uvx --from <このスキルのディレクトリ>/tools html-deck-pdf <deck>` | 見た目を完全に固定する。印刷する |
+| **1枚のHTML** | `uv run --project <このスキルのディレクトリ>/tools html-deck-bundle <deck>` | **人に送る。** 外部参照ゼロの1ファイルで、そのまま添付できる |
+| 固定PDF | `uv run --project <このスキルのディレクトリ>/tools html-deck-pdf <deck>` | 見た目を完全に固定する。印刷する。**頼まれたときだけ出す** |
 
 `html-deck-pdf` は、`theme.css` で指定した書体が**実際に描画に使われたか**を検査して、
 代替書体に落ちていたら書き出さない (**`--mono` は対象外**。等幅は本文の見た目を支配しないので、
@@ -364,11 +370,11 @@ prompt:
 渡し方は、`Bash` を `run_in_background: true` で**2本**起動して URL を渡す。
 
 ```bash
-uvx --from <このスキルのディレクトリ>/tools html-deck-review <deck-dir> --open
+uv run --project <このスキルのディレクトリ>/tools html-deck-review <deck-dir> --open
 ```
 
 ```bash
-uvx --from <このスキルのディレクトリ>/tools html-deck-wait <deck-dir> --timeout 1800
+uv run --project <このスキルのディレクトリ>/tools html-deck-wait <deck-dir> --timeout 1800
 ```
 
 **2本目を忘れない。** サーバは止めるまで動き続けるので完了通知が飛ばず、
@@ -385,7 +391,7 @@ URL を渡したら、`E` で要素をクリックすると入力欄に `#1` の
 そのときは入れ替える。
 
 ```bash
-uvx --from <このスキルのディレクトリ>/tools html-deck-init <deck-dir> --refresh-viewer
+uv run --project <このスキルのディレクトリ>/tools html-deck-init <deck-dir> --refresh-viewer
 ```
 
 タイトルとスライド一覧は引き継ぐ。`theme.css` と `slides/` には触らない
@@ -472,7 +478,7 @@ PPTX が必須なら最初から `pptx` スキルで作る。
 | `tools/tests/test_space_metrics.py` | 余白union・群化比・最大空白・DOM構図契約の自己チェック (ブラウザ不要) | 余白計測を触ったとき |
 | `tools/src/html_deck/export_pdf.py` | 16:9 の固定PDF出力 (指定書体が使われたかを検査する) | 納品時 |
 | `tools/src/html_deck/export_pptx.py` + `emit_pptx.mjs` | 編集可能PPTXの実験的出力 (Chromeの実測座標を PptxGenJS へ写す) | 実験 |
-| `tools/src/html_deck/setup_export_runtime.py` | pptxgenjs をプロジェクト内に用意する (Python 側は uvx が持つ) | PPTX の初回 |
+| `tools/src/html_deck/setup_export_runtime.py` | pptxgenjs をプロジェクト内に用意する (Python 側は uv run が持つ) | PPTX の初回 |
 | `tools/src/html_deck/bundle_deck.py` | デッキ一式を1枚のHTMLに畳む | 渡すとき |
 | `tools/src/html_deck/review_server.py` | デッキを配信し、DOM 指定を JSON に落とす | 手順7・8 |
 | `tools/src/html_deck/review_wait.py` | 指摘が届くまで待つ (終了通知が送信の合図) | 手順7・8 |
@@ -486,22 +492,21 @@ PPTX が必須なら最初から `pptx` スキルで作る。
 | `tools/pyproject.toml` + `tools/uv.lock` | Python 依存とコマンド名の唯一の記述 | 依存やコマンドを変えるとき |
 | `tools/src/html_deck/assets/review.html` | **唯一のビューア。** 配信時はレビュー付き、`file://` では自分で畳んでただのビューアになる | サーバ配信 / init_deck が配置 |
 
-コードは `tools/` の uv プロジェクト (`html_deck` パッケージ) で、**すべて `uvx` から叩く。**
-Python 本体 (3.14) と Playwright / pypdf は `tools/uv.lock` で固定してあり、uvx が実行時に用意する。
+コードは `tools/` の uv プロジェクト (`html_deck` パッケージ) で、
+**すべて `uv run --project <このスキルのディレクトリ>/tools` から叩く。**
+Python 本体 (3.14) と Playwright / pypdf は `tools/uv.lock` で固定してあり、
+初回の呼び出しで `tools/.venv` に入る。以降は解決も再ビルドも走らない。
 pptxgenjs だけは uv の管轄外なので、PPTX 書き出しの初回に
 `<プロジェクト>/.html-deck-runtime/node/` へ入る。
 **利用者に `uv sync` も `npm install` も叩かせない。** 初回だけネットワークを使う。
 Playwright はシステムの Chrome を使うのでブラウザの追加ダウンロードは無い。
 uv / Node.js / Chrome が無い場合だけ名指しのエラーになる。
 
-**`tools/` の中を編集したら、素の `uvx` は変更を拾わない。**
-`uvx --from <ローカルパス>` は一度ビルドした結果を uv のキャッシュに固定し、
-src を書き換えても永久に古いまま動く (実測)。編集して動かすときは
-`cd <このスキルのディレクトリ>/tools && uv run html-deck-<cmd> …` を使うか、
-`uvx --refresh-package html-deck …` を付ける。**タグ付きで配る場合はこの罠は無い**
-(タグが変わればキャッシュキーも変わる)。逆に `@main` で取ると同じ罠を踏む。
+**`uvx --from <ローカルパス>` は使わない。** ビルド結果を uv のキャッシュに固定するので、
+`tools/` の src を書き換えても、`pyproject.toml` に依存を足しても、古いまま動く
+(依存を足した直後に「pypdf が無い」で落ちた。実測)。`uv run --project` にはこの罠が無い。
 
-タグを打って配る場合は `--from` をこう置き換える (散文とコードがずれないように必ずタグを指定する):
+タグを打って配る場合だけ `uvx` を使う (散文とコードがずれないように必ずタグを指定する):
 `uvx --from "git+https://github.com/nogikun/html-deck@<tag>#subdirectory=skills/html-deck/tools" html-deck-check <deck>`
 
 ## このスキルが避けようとしている失敗

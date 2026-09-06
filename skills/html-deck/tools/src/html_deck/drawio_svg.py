@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """`.drawio` を、スライドへインライン展開できるSVGに変換する。
 
-    uvx --from <このスキルのディレクトリ>/tools html-deck-drawio <deck>/figures/loop.drawio [--title "図の説明"]
+    uv run --project <このスキルのディレクトリ>/tools html-deck-drawio <deck>/figures/loop.drawio [--title "図の説明"]
 
 なぜ `<img src="figure.svg">` ではなくインライン展開なのか:
 

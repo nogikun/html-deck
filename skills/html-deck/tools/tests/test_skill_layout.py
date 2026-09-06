@@ -17,8 +17,16 @@ from pathlib import Path
 SKILL = Path(__file__).resolve().parent.parent.parent
 TOOLS = SKILL / "tools"
 PKG = TOOLS / "src/html_deck"
-# vendor/ は上流のコピー。こちらの都合でパスを書き換えない
-DOCS = [p for p in SKILL.rglob("*.md") if "vendor/draw-io" not in p.as_posix()]
+# vendor/ は上流のコピー。こちらの都合でパスを書き換えない。
+# tools/.venv は uv が入れた他人のパッケージ (playwright は自前の SKILL.md を同梱している)。
+_SKIP = ("vendor/draw-io", "/.venv/")
+DOCS = [p for p in SKILL.rglob("*.md")
+        if not any(s in p.as_posix() for s in _SKIP)]
+# ユーザーがコピーして実行する文面は、散文と同じだけ古びる。review.html の
+# 生成コマンドが `python3 scripts/review_server.py` を指したまま残っていて、
+# それでもこのテストは ok だった (散文と .py しか見ていなかった)。
+SHIPPED = (sorted(PKG.glob("*.py")) + sorted((PKG / "assets").glob("*.html"))
+           + sorted(PKG.glob("*.mjs")))
 
 
 def _scripts() -> dict[str, str]:
@@ -70,10 +78,42 @@ def test_no_stale_script_paths() -> None:
     `python3 scripts/xxx.py` を案内していた。エージェントはその案内を信じて
     存在しないパスを叩き、自力で回避策を編み出す。それが一番まずい壊れ方。
     """
-    bad = [f"{f.relative_to(SKILL)}:{i}" for f in list(PKG.glob("*.py")) + DOCS
+    bad = [f"{f.relative_to(SKILL)}:{i}" for f in SHIPPED + DOCS
            for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1)
            if "scripts/" in line]
     assert not bad, "存在しない scripts/ への言及: " + ", ".join(bad)
+
+
+def test_no_bare_interpreter_commands() -> None:
+    """`python3 <なにか>.py` を実行例として書かないこと。
+
+    デッキの依存は tools/pyproject.toml にしか無い。素の `python3` は pyenv の
+    shim や別のバージョンに当たり、`ModuleNotFoundError: pypdf` で落ちる
+    (実際に落ちた)。呼び口は `uv run --project <tools> html-deck-<cmd>` だけ。
+    shebang は実行例ではないので拾わない。
+    """
+    pat = re.compile(r"python3?\s+[\w./-]+\.py")
+    bad = [f"{f.relative_to(SKILL)}:{i}" for f in SHIPPED + DOCS
+           for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1)
+           if pat.search(line) and not line.lstrip().startswith("#!")]
+    assert not bad, "インタプリタ直呼びの実行例: " + ", ".join(bad)
+
+
+def test_generated_commands_are_declared() -> None:
+    """ユーザーがコピーする文面が、実在するコマンドを呼んでいること。
+
+    review.html の「サーバを起動して」プロンプトが `scripts/` を指したまま
+    残っていて、コピーして実行しても何も起きなかった。散文だけ直しても、
+    ユーザーの手元に届くのはこの文面のほう。
+    """
+    declared = set(_scripts())
+    for f in SHIPPED:
+        # 末尾の `-` まで見る。`html-deck-export-` は tempdir の接頭辞であってコマンドではない
+        used = set(re.findall(r"(?<![.a-z-])html-deck-[a-z]+(?![\w-])", f.read_text(encoding="utf-8")))
+        assert not (used - declared), f"{f.relative_to(SKILL)}: 宣言されていないコマンド {sorted(used - declared)}"
+    review = (PKG / "assets/review.html").read_text(encoding="utf-8")
+    assert "uv run --project" in review and "html-deck-review" in review and "--open" in review, \
+        "review.html の起動コマンドが uv run --project … html-deck-review … --open ではない"
 
 
 def test_docs_do_not_name_modules_as_commands() -> None:
@@ -107,6 +147,7 @@ def test_assets_shipped_with_code() -> None:
 if __name__ == "__main__":
     for fn in (test_frontmatter, test_commands_resolve, test_docs_use_only_declared_commands,
                test_docs_paths_exist, test_no_stale_script_paths,
+               test_no_bare_interpreter_commands, test_generated_commands_are_declared,
                test_docs_do_not_name_modules_as_commands, test_assets_shipped_with_code):
         fn()
     print("skill layout self-check: ok")

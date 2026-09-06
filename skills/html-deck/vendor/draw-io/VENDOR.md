@@ -33,4 +33,4 @@ draw.io スキルは複数公開されている。比較して次の理由でこ
 上流は「`.drawio` ファイルを成果物として残す」前提だが、スライドでは
 **SVGへ書き出してHTMLにインライン展開する**ところまでが必要になる。
 その手順とスライド固有の制約は上流には無いので、
-`scripts/drawio_svg.py` と `references/figures.md` 側に置いた。上流には手を入れていない。
+`tools/src/html_deck/drawio_svg.py` と `references/figures.md` 側に置いた。上流には手を入れていない。

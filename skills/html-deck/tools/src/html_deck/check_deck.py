@@ -1,12 +1,8 @@
-#!/usr/bin/env -S uv run --quiet --script
-# /// script
-# requires-python = ">=3.10"
-# dependencies = ["playwright>=1.44"]
-# ///
+#!/usr/bin/env python3
 """固定1600x900キャンバスでHTMLスライドを実測し、決定的な合否と数値指標を返す。
 
 使い方:
-    uv run scripts/check_deck.py <deck-dir> [--round N] [--slide 03] [--no-shots]
+    uvx --from <このスキルのディレクトリ>/tools html-deck-check <deck-dir> [--round N] [--slide 03] [--no-shots]
 
 やること:
   1. slides/*.html を走査して index.html のスライド一覧を再生成する
@@ -26,10 +22,25 @@ import base64
 import json
 import re
 import sys
+from statistics import median, pstdev
 from pathlib import Path
 
-SKILL_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_GATES = SKILL_DIR / "assets" / "gates.json"
+
+DEFAULT_GATES = Path(__file__).resolve().parent / "assets" / "gates.json"
+
+
+def gates_for(deck: Path) -> Path:
+    """デッキ配下に gates.json があればそれを使う。無ければ同梱の既定値。
+
+    場面ごとに字数の上限を変える運用 (SKILL.md 手順1) の反映先。同梱側は
+    uv のキャッシュに展開されるので書き換えられないし、書き換えたら他の
+    デッキにも波及する。デッキの隣に置けば、変えた事実がデッキと一緒に残る。
+
+    ponytail: ファイル丸ごと差し替え (マージしない)。同梱の既定が更新されても
+    デッキ側は追随しない。追随させたいなら差分だけを重ねる形にする。
+    """
+    local = deck / "gates.json"
+    return local if local.is_file() else DEFAULT_GATES
 
 # ---------------------------------------------------------------- 計測用JS
 
@@ -96,9 +107,18 @@ EXTRACT_JS = r"""
   const colorUse = [];
   const families = new Set();
   const textRuns = [];   // 文字の実行矩形。占有率と重なり判定に使う
+  const spaceItems = []; // 意味要素の矩形。背景・装飾は Python 側で除外する
   const figures = [];
   let textArea = 0;
   let allText = '';
+  const spaceProfile = document.documentElement.getAttribute('data-space-profile') ||
+    document.body.getAttribute('data-space-profile') || '';
+  const layoutRegions = [];
+
+  const nearestAttr = (el, name) => {
+    const marked = el.closest('[' + name + ']');
+    return marked ? (marked.getAttribute(name) || '').trim() : '';
+  };
 
   document.querySelectorAll('body, body *').forEach((el) => {
     const cs = getComputedStyle(el);
@@ -148,6 +168,14 @@ EXTRACT_JS = r"""
       // figcaption は「図の中の文字」ではなく図に付ける注記なので、細字側で扱う。
       // ここを分けないと、正しく書かれたキャプションが図中文字の下限に引っかかる。
       const inFigure = !finePrint && (el.namespaceURI === SVG_NS || !!el.closest('figure, svg'));
+      const explicitRole = nearestAttr(el, 'data-space-role');
+      const spaceRole = explicitRole || (finePrint ? 'source' : (inFigure ? 'figure' :
+        (/^h[1-3]$/.test(el.tagName.toLowerCase()) ? 'primary' : 'body')));
+      const spaceGroup = nearestAttr(el, 'data-space-group') || rec.sel;
+      const spaceIntent = nearestAttr(el, 'data-space-intent');
+      rec.spaceRole = spaceRole;
+      rec.spaceGroup = spaceGroup;
+      rec.spaceIntent = spaceIntent;
       rec.text = { chars: ownText.length, snippet: ownText.slice(0, 60), lines, finePrint, inFigure };
       rec.font = {
         size: +fs.toFixed(1),
@@ -174,6 +202,12 @@ EXTRACT_JS = r"""
             sel: rec.sel, inFigure,
             x: rc.x, y: rc.y, w: rc.width, h: rc.height,
             snippet: n.textContent.trim().slice(0, 24),
+          });
+          spaceItems.push({
+            kind: 'text', sel: rec.sel, x: rc.x, y: rc.y, w: rc.width, h: rc.height,
+            role: spaceRole, group: spaceGroup, intent: spaceIntent, inFigure,
+            fontSize: fs, weight: fw, fg, bg: bg.color,
+            semantic: !['background', 'decoration'].includes(spaceRole),
           });
         }
       });
@@ -204,6 +238,80 @@ EXTRACT_JS = r"""
     }
 
     els.push(rec);
+  });
+
+  // ---- レイアウト領域の実矩形
+  // 余白は子要素がそれぞれ持つものではなく、親のフレームが一度だけ配分する。
+  // grid/flex と表・比較領域を拾い、兄弟の重なり、親に対する子群の片寄り、
+  // 矢印用トラックの過大化、gap と子 margin の二重指定を Python 側で判定する。
+  const px = (v) => {
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const rectBox = (r) => ({
+    x: +r.x.toFixed(1), y: +r.y.toFixed(1),
+    w: +r.width.toFixed(1), h: +r.height.toFixed(1),
+    right: +r.right.toFixed(1), bottom: +r.bottom.toFixed(1),
+  });
+  const layoutClass = (el) => [...(el.classList || [])].join(' ');
+  const layoutLike = (el, cs) => {
+    const cls = layoutClass(el);
+    const explicit = el.hasAttribute('data-space-frame');
+    const tableLike = el.tagName === 'TABLE' ||
+      /(^|\s)(compare|table|composition)(\s|$)/i.test(cls);
+    const displayLayout = /^(grid|inline-grid|flex|inline-flex)$/.test(cs.display);
+    return { explicit, tableLike, displayLayout };
+  };
+  [...document.querySelectorAll('body *')].forEach((el) => {
+    const cs = getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
+    if (!visible(el, cs, rect) || ['BODY', 'ARTICLE', 'MAIN', 'HEADER', 'FOOTER'].includes(el.tagName)) return;
+    const kind = layoutLike(el, cs);
+    const children = [...el.children].filter((child) => {
+      const ccs = getComputedStyle(child);
+      return visible(child, ccs, child.getBoundingClientRect());
+    });
+    if (!(kind.explicit || kind.tableLike || kind.displayLayout) || children.length < 2) return;
+    const childItems = children.map((child) => {
+      const cr = child.getBoundingClientRect();
+      const ccs = getComputedStyle(child);
+      const raw = (child.textContent || '').replace(/\s+/g, '').trim();
+      const childRole = child.getAttribute('data-space-role') || '';
+      const childIntent = child.getAttribute('data-space-intent') || '';
+      const childClass = layoutClass(child);
+      const arrowOnly = /^[→←↔⇢⇒>]+$/.test(raw);
+      const connector = childRole === 'connector' ||
+        /(^|\s)(arrow|connector|middle)(\s|$)/i.test(childClass) || arrowOnly;
+      return {
+        sel: shortSel(child), tag: child.tagName.toLowerCase(), box: rectBox(cr),
+        role: childRole, intent: childIntent, text: raw.slice(0, 80),
+        connector,
+        margin: {
+          left: px(ccs.marginLeft), right: px(ccs.marginRight),
+          top: px(ccs.marginTop), bottom: px(ccs.marginBottom),
+        },
+      };
+    });
+    const inner = {
+      x: +(rect.x + px(cs.paddingLeft)).toFixed(1),
+      y: +(rect.y + px(cs.paddingTop)).toFixed(1),
+      w: +Math.max(0, rect.width - px(cs.paddingLeft) - px(cs.paddingRight)).toFixed(1),
+      h: +Math.max(0, rect.height - px(cs.paddingTop) - px(cs.paddingBottom)).toFixed(1),
+    };
+    const explicitFrame = el.getAttribute('data-space-frame') || '';
+    const inferredFrame = explicitFrame || (kind.tableLike ? 'table' :
+      (kind.displayLayout && (rect.width >= 720 || rect.height >= 420) ? 'composition' : ''));
+    layoutRegions.push({
+      sel: shortSel(el), tag: el.tagName.toLowerCase(), box: rectBox(rect), inner,
+      display: cs.display, frame: inferredFrame,
+      align: el.getAttribute('data-space-align') || '',
+      intent: el.getAttribute('data-space-intent') || '',
+      role: el.getAttribute('data-space-role') || '',
+      tableLike: kind.tableLike,
+      direction: cs.flexDirection || 'row',
+      gapX: px(cs.columnGap || cs.gap), gapY: px(cs.rowGap || cs.gap),
+      children: childItems,
+    });
   });
 
   // ---- 文字同士の重なり
@@ -257,6 +365,10 @@ EXTRACT_JS = r"""
         if (sw > 0 && sw < minStroke) minStroke = sw;
       }
     });
+    const explicitRole = nearestAttr(svg, 'data-space-role');
+    const role = explicitRole || (svg.getAttribute('aria-hidden') === 'true' ? 'decoration' : 'figure');
+    const group = nearestAttr(svg, 'data-space-group') || shortSel(svg);
+    const intent = nearestAttr(svg, 'data-space-intent');
     figures.push({
       kind: 'svg',
       sel: shortSel(svg),
@@ -268,11 +380,19 @@ EXTRACT_JS = r"""
       minStroke: minStroke === Infinity ? null : +minStroke.toFixed(2),
       minInset: minInset === Infinity ? null : +minInset.toFixed(1),
     });
+    spaceItems.push({
+      kind: 'figure', sel: shortSel(svg), x: r.x, y: r.y, w: r.width, h: r.height,
+      role, group, intent, inFigure: false, semantic: !['background', 'decoration'].includes(role),
+    });
   });
 
   document.querySelectorAll('img').forEach((img) => {
     const r = img.getBoundingClientRect();
     if (r.width < 4 || r.height < 4) return;
+    const explicitRole = nearestAttr(img, 'data-space-role');
+    const role = explicitRole || (img.getAttribute('aria-hidden') === 'true' ? 'decoration' : 'figure');
+    const group = nearestAttr(img, 'data-space-group') || shortSel(img);
+    const intent = nearestAttr(img, 'data-space-intent');
     figures.push({
       kind: 'img',
       sel: shortSel(img),
@@ -282,9 +402,17 @@ EXTRACT_JS = r"""
       objectFit: getComputedStyle(img).objectFit,
       src: (img.getAttribute('src') || '').slice(0, 80),
     });
+    spaceItems.push({
+      kind: 'figure', sel: shortSel(img), x: r.x, y: r.y, w: r.width, h: r.height,
+      role, group, intent, inFigure: false, semantic: !['background', 'decoration'].includes(role),
+    });
   });
 
-  const bullets = document.querySelectorAll('li').length;
+  // 箇条書きは「何項目あるか」だけでは足りない。1項目が文章になっている枚は、
+  // 項目数が範囲内でも読まれない。項目ごとの長さを返して Python 側で測る。
+  const bulletTexts = [...document.querySelectorAll('li')]
+    .map((li) => (li.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200));
+  const bullets = bulletTexts.length;
 
   return {
     title: document.title || '',
@@ -300,7 +428,11 @@ EXTRACT_JS = r"""
     families: [...families],
     overlaps,
     figures,
+    spaceItems,
+    layoutRegions,
+    spaceProfile,
     bullets,
+    bulletTexts,
     textArea: Math.round(textArea),
     allText: allText.trim(),
     // <link rel=stylesheet> の実体は file:// だと cssRules が読めない (opaque)。
@@ -401,6 +533,363 @@ def near_palette(rgb, palette, tol=10) -> bool:
     return False
 
 
+# ---------------------------------------------------------------- 余白計測
+
+
+def _space_rect(item: dict, width: float, height: float):
+    """意味要素の矩形をキャンバス内へ切り詰める。"""
+    try:
+        x1 = max(0.0, float(item["x"]))
+        y1 = max(0.0, float(item["y"]))
+        x2 = min(width, float(item["x"]) + float(item["w"]))
+        y2 = min(height, float(item["y"]) + float(item["h"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+    return (x1, y1, x2, y2) if x2 > x1 and y2 > y1 else None
+
+
+def _union_area(rects: list[tuple[float, float, float, float]]) -> float:
+    """軸に平行な矩形のunion面積。画像処理はせずDOM矩形だけを見る。"""
+    if not rects:
+        return 0.0
+    xs = sorted({x for r in rects for x in (r[0], r[2])})
+    area = 0.0
+    # ponytail: O(n²)の走査で十分。数十個のDOM矩形を高速化する理由はまだない。
+    for left, right in zip(xs, xs[1:]):
+        if right <= left:
+            continue
+        ys = sorted((r[1], r[3]) for r in rects if r[0] < right and r[2] > left)
+        covered = 0.0
+        end = None
+        for start, stop in ys:
+            if end is None:
+                covered, end = stop - start, stop
+            elif start > end:
+                area += (right - left) * covered
+                covered, end = stop - start, stop
+            elif stop > end:
+                covered += stop - end
+                end = stop
+        area += (right - left) * covered
+    return area
+
+
+def _space_box(rects: list[tuple[float, float, float, float]]):
+    if not rects:
+        return None
+    return (
+        min(r[0] for r in rects), min(r[1] for r in rects),
+        max(r[2] for r in rects), max(r[3] for r in rects),
+    )
+
+
+def _rect_gap(a, b) -> float:
+    dx = max(a[0] - b[2], b[0] - a[2], 0.0)
+    dy = max(a[1] - b[3], b[1] - a[3], 0.0)
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def _nearest_gaps(rects: list[tuple[float, float, float, float]]) -> list[float]:
+    gaps = []
+    for i, current in enumerate(rects):
+        others = [_rect_gap(current, other) for j, other in enumerate(rects) if i != j]
+        if others:
+            nearest = min(others)
+            if nearest > 0:
+                gaps.append(nearest)
+    return gaps
+
+
+def _largest_void_ratio(rects, width: float, height: float, cols: int, rows: int) -> float | None:
+    if not rects or cols < 1 or rows < 1:
+        return None
+    cell_w, cell_h = width / cols, height / rows
+    occupied = set()
+    for x1, y1, x2, y2 in rects:
+        for row in range(rows):
+            cy1, cy2 = row * cell_h, (row + 1) * cell_h
+            if y1 >= cy2 or y2 <= cy1:
+                continue
+            for col in range(cols):
+                cx1, cx2 = col * cell_w, (col + 1) * cell_w
+                if x1 < cx2 and x2 > cx1:
+                    occupied.add((col, row))
+
+    empty = {(col, row) for row in range(rows) for col in range(cols)} - occupied
+    largest = 0
+    while empty:
+        seed = empty.pop()
+        size = 1
+        stack = [seed]
+        while stack:
+            col, row = stack.pop()
+            for neighbor in ((col - 1, row), (col + 1, row), (col, row - 1), (col, row + 1)):
+                if neighbor in empty:
+                    empty.remove(neighbor)
+                    stack.append(neighbor)
+                    size += 1
+        largest = max(largest, size)
+    return largest / (cols * rows)
+
+
+def _space_blocks(items: list[dict], width: float, height: float) -> list[dict]:
+    blocks = {}
+    for item in items:
+        if item.get("role") in ("background", "decoration", "source"):
+            continue
+        if item.get("kind") == "text" and item.get("inFigure"):
+            continue
+        rect = _space_rect(item, width, height)
+        if rect is None:
+            continue
+        key = (item.get("kind", ""), item.get("sel", ""))
+        block = blocks.setdefault(key, {
+            "rects": [], "role": item.get("role", ""), "group": item.get("group", ""),
+            "font_size": 0.0, "contrast": 0.0,
+        })
+        block["rects"].append(rect)
+        block["font_size"] = max(block["font_size"], float(item.get("fontSize") or 0))
+        if item.get("fg") and item.get("bg"):
+            try:
+                block["contrast"] = max(block["contrast"], contrast(item["fg"], item["bg"]))
+            except (KeyError, TypeError, ValueError):
+                pass
+    for block in blocks.values():
+        block["box"] = _space_box(block["rects"])
+        block["area"] = _union_area(block["rects"])
+    return list(blocks.values())
+
+
+def _entry_candidate_count(items: list[dict], width: float, height: float) -> int:
+    blocks = _space_blocks(items, width, height)
+    if not blocks:
+        return 0
+    max_area = max(b["area"] for b in blocks) or 1.0
+    max_font = max(b["font_size"] for b in blocks) or 1.0
+    boxes = [b["box"] for b in blocks]
+    candidates = 0
+    for index, block in enumerate(blocks):
+        area_norm = block["area"] / max_area
+        font_norm = block["font_size"] / max_font
+        contrast_norm = min(block["contrast"] / 7.0, 1.0)
+        other_gaps = [_rect_gap(block["box"], other) for j, other in enumerate(boxes) if j != index]
+        isolation_bonus = 1.0 if (not other_gaps or min(other_gaps) >= 24) else 0.0
+        primary_bonus = 1.0 if block["role"] == "primary" else 0.0
+        score = area_norm + font_norm + contrast_norm + isolation_bonus + primary_bonus
+        if score >= 1.5:
+            candidates += 1
+    return candidates
+
+
+def _space_metrics(data: dict, width: int, height: int, config: dict) -> dict:
+    items = [i for i in data.get("spaceItems", []) if i.get("semantic", True)]
+    rects = [rect for item in items if (rect := _space_rect(item, width, height)) is not None]
+    if not rects:
+        return {
+            "occupied_ratio": None, "whitespace_ratio": None, "outer_margin_min_px": None,
+            "largest_void_ratio": None, "group_count": 0, "group_separation_ratio": None,
+            "entry_candidate_count": 0, "gap_rhythm_cv": None, "profile": data.get("spaceProfile", ""),
+            "intent": [], "semantic_count": 0,
+        }
+
+    area = _union_area(rects)
+    margin = min(min(x1, y1, width - x2, height - y2) for x1, y1, x2, y2 in rects)
+    cols = int(config.get("void_grid_cols", 32))
+    rows = int(config.get("void_grid_rows", 18))
+    intents = sorted({token for item in items for token in re.split(r"[,\s]+", item.get("intent", "")) if token})
+
+    major = [item for item in items if item.get("role") not in ("source", "background", "decoration")]
+    groups = {}
+    for item in major:
+        rect = _space_rect(item, width, height)
+        if rect is not None:
+            groups.setdefault(item.get("group") or item.get("sel", ""), []).append(rect)
+    group_boxes = [_space_box(group) for group in groups.values()]
+    inner = []
+    for group in groups.values():
+        inner.extend(_nearest_gaps(group))
+    outer = []
+    for index, box in enumerate(group_boxes):
+        distances = [_rect_gap(box, other) for j, other in enumerate(group_boxes) if j != index]
+        if distances:
+            outer.append(min(distances))
+    separation = None
+    if inner and outer:
+        separation = median(outer) / max(median(inner), 1.0)
+
+    blocks = _space_blocks(major, width, height)
+    rhythm_rects = [block["box"] for block in blocks]
+    rhythm_gaps = _nearest_gaps(rhythm_rects) if len(rhythm_rects) >= 3 else []
+    rhythm_cv = pstdev(rhythm_gaps) / (sum(rhythm_gaps) / len(rhythm_gaps)) if len(rhythm_gaps) >= 3 and sum(rhythm_gaps) else None
+
+    return {
+        "occupied_ratio": area / (width * height),
+        "whitespace_ratio": 1 - area / (width * height),
+        "outer_margin_min_px": margin,
+        "largest_void_ratio": _largest_void_ratio(rects, width, height, cols, rows),
+        "group_count": len(groups),
+        "group_separation_ratio": separation,
+        "entry_candidate_count": _entry_candidate_count(items, width, height),
+        "gap_rhythm_cv": rhythm_cv,
+        "profile": data.get("spaceProfile", ""),
+        "intent": intents,
+        "semantic_count": len(items),
+    }
+
+
+def _box_rect(box: dict | None, width: float, height: float):
+    if not isinstance(box, dict):
+        return None
+    return _space_rect(box, width, height)
+
+
+def _intersection_area(a, b) -> float:
+    if not a or not b:
+        return 0.0
+    return max(0.0, min(a[2], b[2]) - max(a[0], b[0])) * max(
+        0.0, min(a[3], b[3]) - max(a[1], b[1])
+    )
+
+
+def _layout_geometry(data: dict, width: int, height: int, config: dict) -> dict:
+    """親の一度の配分を測る。子の余白を足し上げず、兄弟の実矩形だけを比較する。"""
+    result = {
+        "regions": [], "overlaps": [], "off_center": [], "child_shifts": [],
+        "wide_connectors": [], "redundant_gaps": [], "max_void_ratio": None,
+    }
+    min_overlap_area = float(config.get("layout_overlap_area_min_px", 64))
+    min_overlap_share = float(config.get("layout_overlap_share_block", 0.02))
+    center_tolerance = float(config.get("layout_center_tolerance_px", 16))
+    shift_tolerance = float(config.get("layout_child_shift_tolerance_px", 16))
+    connector_max_px = float(config.get("connector_track_max_px", 96))
+    connector_max_ratio = float(config.get("connector_track_max_ratio", 0.12))
+    redundant_gap_min = float(config.get("redundant_gap_min_px", 12))
+
+    def center(rect):
+        return ((rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2)
+
+    def has_intent(value, *tokens):
+        words = set(re.split(r"[,\s]+", value or ""))
+        return bool(words.intersection(tokens))
+
+    for region in data.get("layoutRegions", []):
+        frame = _box_rect(region.get("box"), width, height)
+        inner = _box_rect(region.get("inner"), width, height) or frame
+        if not frame or not inner:
+            continue
+        children = []
+        for child in region.get("children", []):
+            rect = _box_rect(child.get("box"), width, height)
+            if rect:
+                children.append((child, rect))
+        result["regions"].append(region.get("sel", "?"))
+        if not children:
+            continue
+
+        # 重なりは兄弟だけを比較する。親子の包含は正常なDOM構造なので数えない。
+        for i, (a, ar) in enumerate(children):
+            for b, br in children[i + 1:]:
+                area = _intersection_area(ar, br)
+                smaller = min((ar[2] - ar[0]) * (ar[3] - ar[1]),
+                              (br[2] - br[0]) * (br[3] - br[1]))
+                share = area / smaller if smaller else 0.0
+                if area < min_overlap_area or share < min_overlap_share:
+                    continue
+                if has_intent(a.get("intent"), "overlay") or has_intent(b.get("intent"), "overlay"):
+                    continue
+                result["overlaps"].append({
+                    "parent": region.get("sel", "?"), "a": a.get("sel", "?"),
+                    "b": b.get("sel", "?"), "area": round(area, 1),
+                    "share": round(share, 3),
+                })
+
+        child_rects = [rect for _, rect in children]
+        child_box = _space_box(child_rects)
+        inner_center = center(inner)
+        tracks_composition = (
+            region.get("frame") in ("composition", "centered", "table") or
+            region.get("tableLike") or region.get("align") in ("center", "safe-center")
+        )
+        if child_box and tracks_composition:
+            child_center = center(child_box)
+            child_shift = max(abs(child_center[0] - inner_center[0]),
+                              abs(child_center[1] - inner_center[1]))
+            allowed_start = has_intent(region.get("intent"), "left", "start", "edge", "full-bleed")
+            if child_shift > shift_tolerance and not allowed_start:
+                result["child_shifts"].append({
+                    "parent": region.get("sel", "?"), "offset": round(child_shift, 1),
+                    "left": round(max(0.0, child_box[0] - inner[0]), 1),
+                    "right": round(max(0.0, inner[2] - child_box[2]), 1),
+                    "top": round(max(0.0, child_box[1] - inner[1]), 1),
+                    "bottom": round(max(0.0, inner[3] - child_box[3]), 1),
+                })
+
+        align = region.get("align") or ""
+        center_expected = (
+            align in ("center", "safe-center", "center-x", "safe-center-x") or
+            region.get("frame") in ("centered", "table") or
+            region.get("tableLike")
+        )
+        if center_expected and not has_intent(region.get("intent"), "left", "start", "edge", "full-bleed"):
+            frame_center = center(frame)
+            offset_x = abs(frame_center[0] - width / 2)
+            offset_y = (abs(frame_center[1] - height / 2)
+                        if align in ("center", "safe-center") or region.get("frame") == "centered"
+                        else 0.0)
+            offset = max(offset_x, offset_y)
+            if offset > center_tolerance:
+                result["off_center"].append({
+                    "region": region.get("sel", "?"), "offset": round(offset, 1),
+                    "x": round(frame[0], 1), "y": round(frame[1], 1),
+                    "w": round(frame[2] - frame[0], 1), "h": round(frame[3] - frame[1], 1),
+                })
+
+        inner_area = max(1.0, (inner[2] - inner[0]) * (inner[3] - inner[1]))
+        void_ratio = max(0.0, 1.0 - _union_area(child_rects) / inner_area)
+        if tracks_composition:
+            result["max_void_ratio"] = max(result["max_void_ratio"] or 0.0, void_ratio)
+
+        if not tracks_composition:
+            continue
+
+        for child, rect in children:
+            if not child.get("connector") or has_intent(child.get("intent"), "overlay", "wide-connector"):
+                continue
+            axis_size = rect[3] - rect[1] if region.get("direction") == "column" else rect[2] - rect[0]
+            axis_total = inner[3] - inner[1] if region.get("direction") == "column" else inner[2] - inner[0]
+            ratio = axis_size / axis_total if axis_total else 0.0
+            if axis_size > connector_max_px or ratio > connector_max_ratio:
+                result["wide_connectors"].append({
+                    "parent": region.get("sel", "?"), "child": child.get("sel", "?"),
+                    "size": round(axis_size, 1), "ratio": round(ratio, 3),
+                })
+
+        # gap と子の隣接 margin は同じ間隔を二重に所有するため、片方に寄せる。
+        if region.get("direction") == "column":
+            ordered = sorted(children, key=lambda item: item[1][1])
+            css_gap = float(region.get("gapY") or 0)
+            same_axis = lambda a, b: min(a[2], b[2]) - max(a[0], b[0]) > 0
+            margin_a, margin_b = "bottom", "top"
+        else:
+            ordered = sorted(children, key=lambda item: item[1][0])
+            css_gap = float(region.get("gapX") or 0)
+            same_axis = lambda a, b: min(a[3], b[3]) - max(a[1], b[1]) > 0
+            margin_a, margin_b = "right", "left"
+        if css_gap >= redundant_gap_min:
+            for (a, ar), (b, br) in zip(ordered, ordered[1:]):
+                if not same_axis(ar, br):
+                    continue
+                ma = float((a.get("margin") or {}).get(margin_a, 0))
+                mb = float((b.get("margin") or {}).get(margin_b, 0))
+                if ma >= redundant_gap_min or mb >= redundant_gap_min:
+                    result["redundant_gaps"].append({
+                        "parent": region.get("sel", "?"), "a": a.get("sel", "?"),
+                        "b": b.get("sel", "?"), "gap": round(css_gap, 1),
+                        "margin": round(ma + mb, 1),
+                    })
+    return result
+
+
 # ---------------------------------------------------------------- 判定
 
 
@@ -408,10 +897,89 @@ def evaluate(data: dict, gates: dict, source: str, slide_id: str, theme_css: str
     W = gates["canvas"]["width"]
     H = gates["canvas"]["height"]
     inset = gates["safe_inset_px"]
+    space_config = gates.get("space", {})
+    space = _space_metrics(data, W, H, space_config)
+    layout = _layout_geometry(data, W, H, space_config)
     findings = []
 
     def add(sev, code, msg, **extra):
         findings.append({"severity": sev, "code": code, "message": msg, **extra})
+
+    # --- 余白の意味構造
+    if space["semantic_count"]:
+        intents = set(space["intent"])
+        margin_min = space_config.get("margin_min_px", inset)
+        if (space["outer_margin_min_px"] is not None
+                and space["outer_margin_min_px"] < margin_min
+                and not intents.intersection({"edge", "full-bleed"})):
+            add("review", "space_edge_tight",
+                f"意味要素の外周最小余白が {space['outer_margin_min_px']:.0f}px。"
+                f"{margin_min}px未満なので、外周を戻すか edge/full-bleed の意図を宣言する。")
+
+        separation = space["group_separation_ratio"]
+        if separation is not None and separation < space_config.get("group_gap_ratio_min", 1.5):
+            add("review", "weak_group_separation",
+                f"グループ間/グループ内の距離比が {separation:.2f}。"
+                f"{space_config.get('group_gap_ratio_min', 1.5):.1f}未満なので、群の外側を広げる。")
+
+        void_limit = space_config.get("largest_void_info_ratio", 0.30)
+        if (space["largest_void_ratio"] is not None
+                and space["largest_void_ratio"] > void_limit
+                and not intents.intersection({"hero", "breath", "full-bleed"})):
+            add("info", "possible_dead_space",
+                f"最大の空白連結領域が画面の {space['largest_void_ratio']:.0%}。"
+                "意図した呼吸なら宣言し、そうでなければ図や主張の位置を見直す。")
+
+        entries = space["entry_candidate_count"]
+        if entries == 0:
+            add("review", "no_entry_candidate",
+                "面積・文字サイズ・コントラストから視線の入口候補を作れない。"
+                "主張の見出し、または主役となる図を1つ置く。")
+        elif entries > space_config.get("entry_candidate_max", 2):
+            add("review", "split_entry",
+                f"視線の入口候補が {entries}箇所。"
+                f"{space_config.get('entry_candidate_max', 2)}箇所以内へ主役を絞る。")
+
+        rhythm = space["gap_rhythm_cv"]
+        if rhythm is not None and rhythm > space_config.get("gap_rhythm_cv_info_max", 0.75):
+            add("info", "spacing_rhythm_noise",
+                f"主要要素間隔の変動係数が {rhythm:.2f}。"
+                "間隔トークンを整理するか、役割差による不均等なら意図を確認する。")
+
+    # --- DOMレイアウト契約
+    # 余白の美的な良し悪しは批評へ残すが、兄弟の重なり・構図の片寄り・
+    # コネクタ用トラックの過大化・間隔の二重所有は、実矩形だけで再現可能に止める。
+    for ov in layout["overlaps"]:
+        add("block", "layout_overlap",
+            f"{ov['parent']} の兄弟領域 {ov['a']} と {ov['b']} が "
+            f"{ov['area']:.0f}px² ({ov['share']:.0%}) 重なっている。"
+            "親のgrid/flexで領域を一度だけ分配し、absolute/transformによる座標調整を外す。",
+            selector=ov["parent"], overlap=ov)
+    for item in layout["off_center"]:
+        add("block", "composition_off_center",
+            f"{item['region']} がスライド中央から {item['offset']:.0f}px 片寄っている。"
+            "中央配置の構図は幅を保ったまま margin-inline:auto（または "
+            "data-space-align=\"center\"）で中央に置く。",
+            selector=item["region"], offset=item["offset"])
+    for item in layout["child_shifts"]:
+        add("block", "layout_child_shift",
+            f"{item['parent']} の子群が親の内側中央から {item['offset']:.0f}px 片寄っている "
+            f"(左右空き {item['left']:.0f}px / {item['right']:.0f}px)。"
+            "固定トラックや空き列をやめ、子幅の合計とgapを親フレームで配分する。",
+            selector=item["parent"], offset=item["offset"])
+    for item in layout["wide_connectors"]:
+        add("block", "connector_track_wide",
+            f"{item['child']} は接続部品なのに幅 {item['size']:.0f}px "
+            f"({item['ratio']:.0%} of track)。コネクタ用トラックを "
+            f"{space_config.get('connector_track_max_px', 96):.0f}px 以下へ縮め、"
+            "戻した幅を内容領域へ配分する。",
+            selector=item["child"], size=item["size"], ratio=item["ratio"])
+    for item in layout["redundant_gaps"]:
+        add("block", "redundant_gap_owner",
+            f"{item['parent']} は親gap {item['gap']:.0f}px と隣接子margin "
+            f"{item['margin']:.0f}px を同じ間隔に使っている。"
+            "間隔の所有者を親gapか子marginの一方に絞る。",
+            selector=item["parent"], gap=item["gap"], margin=item["margin"])
 
     # --- 文書レベル
     if not data["title"].strip():
@@ -558,6 +1126,30 @@ def evaluate(data: dict, gates: dict, source: str, slide_id: str, theme_css: str
         # 図が主役の枚は文字が少なくて当然。図の面積を見ずに薄いと言わない。
         add("info", "underfilled", f"文字ブロックが画面の {area_ratio:.0%}。1枚として情報が薄い可能性。")
 
+    # --- 情報量の統制 (図に置き換えられていないか / 箇条書きが段落になっていないか)
+    # アイコン程度の svg は「図がある」に数えない。数えると、装飾を1つ置くだけで
+    # 文字だけの枚が図のある枚として通ってしまう。
+    figs = data.get("figures", [])
+    big_figs = [f for f in figs if (f["w"] * f["h"]) / (W * H) >= gates["figure_min_area_ratio"]]
+    has_figure = bool(big_figs)
+    if not has_figure and ja >= gates["text_only_ja_chars"]:
+        add("review", "text_only",
+            f"図が無く日本語 {ja}文字。この枚の関係 (比較/因果/構造/数量) は図にできないか。"
+            "文字だけの枚は読み飛ばされ、記憶にも残らない。")
+
+    bullet_texts = data.get("bulletTexts", [])
+    if data["bullets"] > gates["max_bullets"]:
+        add("review", "bullet_flood",
+            f"箇条書きが {data['bullets']}項目。{gates['max_bullets']}項目を超えると"
+            "並列に見えるだけで順序も重みも伝わらない。削るか、図か表に組み替える。")
+    long_bullets = [t for t in bullet_texts
+                    if len(JA_RE.findall(t)) > gates["max_bullet_chars_ja"]]
+    if long_bullets:
+        add("review", "bullet_is_paragraph",
+            f"{len(long_bullets)}項目が {gates['max_bullet_chars_ja']}字を超えている "
+            f"(例「{long_bullets[0][:40]}」)。箇条書きの形をした段落は読まれない。"
+            "体言止めまで削るか、本文にする。")
+
     # --- 文字の重なり
     for ov in data.get("overlaps", []):
         where = "図の中で" if ov["inFigure"] else ""
@@ -653,12 +1245,100 @@ def evaluate(data: dict, gates: dict, source: str, slide_id: str, theme_css: str
             "body_basis": body_basis,
             "hierarchy_ratio": round(ratio_h, 2),
             "text_area_ratio": round(area_ratio, 3),
+            "space": {
+                "occupied_ratio": round(space["occupied_ratio"], 2) if space["occupied_ratio"] is not None else None,
+                "whitespace_ratio": round(space["whitespace_ratio"], 2) if space["whitespace_ratio"] is not None else None,
+                "outer_margin_min_px": round(space["outer_margin_min_px"], 1) if space["outer_margin_min_px"] is not None else None,
+                "largest_void_ratio": round(space["largest_void_ratio"], 2) if space["largest_void_ratio"] is not None else None,
+                "group_count": space["group_count"],
+                "group_separation_ratio": round(space["group_separation_ratio"], 2) if space["group_separation_ratio"] is not None else None,
+                "entry_candidate_count": space["entry_candidate_count"],
+                "gap_rhythm_cv": round(space["gap_rhythm_cv"], 2) if space["gap_rhythm_cv"] is not None else None,
+                "profile": space["profile"],
+                "intent": space["intent"],
+                "semantic_count": space["semantic_count"],
+            },
+            "layout": {
+                "region_count": len(layout["regions"]),
+                "overlap_count": len(layout["overlaps"]),
+                "off_center_count": len(layout["off_center"]),
+                "child_shift_count": len(layout["child_shifts"]),
+                "wide_connector_count": len(layout["wide_connectors"]),
+                "redundant_gap_count": len(layout["redundant_gaps"]),
+                "max_void_ratio": (round(layout["max_void_ratio"], 2)
+                                    if layout["max_void_ratio"] is not None else None),
+            },
+            "figure_count": len(figs),
+            "figure_area_ratio": round(fig_share, 3),
+            "has_figure": has_figure,
             "bullets": data["bullets"],
+            "max_bullet_chars": max((len(JA_RE.findall(t)) for t in bullet_texts), default=0),
             "families": data["families"],
         },
         "counts": counts,
         "findings": findings,
     }
+
+
+# ---------------------------------------------------------------- デッキ全体
+
+
+def deck_level(results: list[dict], gates: dict) -> list[dict]:
+    """1枚ずつ見ても分からない欠陥を、並びとして測る。
+
+    情報量の偏りは枚ごとの検査では出ない。1枚だけ文字が多いのは正当でも、
+    文字だけの枚が5枚続くデッキは、どの1枚も合格のまま全体として読まれない。
+    """
+    out: list[dict] = []
+    n = len(results)
+    if n < 3:
+        return out   # 3枚未満に並びの話をしても意味がない
+
+    def add(sev, code, msg, **extra):
+        out.append({"severity": sev, "code": code, "message": msg, **extra})
+
+    with_fig = [r["slide"] for r in results if r["metrics"].get("has_figure")]
+    ratio = len(with_fig) / n
+    if ratio < gates["figure_slide_ratio_min"]:
+        lacking = [r["slide"] for r in results if not r["metrics"].get("has_figure")]
+        add("review", "figure_coverage",
+            f"図のある枚が {len(with_fig)}/{n}枚 ({ratio:.0%})。"
+            f"{gates['figure_slide_ratio_min']:.0%} を下回ると、通しで読んだとき文字の壁になる。"
+            f"図が無い枚: {', '.join(lacking[:8])}{' …' if len(lacking) > 8 else ''}",
+            slides=lacking)
+
+    # 図のない枚が続く区間。1枚おきに図があれば通る。連続が問題。
+    run, runs = [], []
+    for r in results:
+        if r["metrics"].get("has_figure"):
+            if run:
+                runs.append(run)
+                run = []
+        else:
+            run.append(r["slide"])
+    if run:
+        runs.append(run)
+    limit = gates["text_only_streak_max"]
+    for streak in runs:
+        # 表紙も章扉も除外しない。図が無い枚が3枚続けば、それが表紙から始まって
+        # いても読み手には文字の壁として続く。除外を入れると、この検査は
+        # 「言い訳が効く検査」になって機能しなくなる。
+        if len(streak) > limit:
+            add("review", "text_only_streak",
+                f"図のない枚が {len(streak)}枚続いている ({' → '.join(streak)})。"
+                f"{limit}枚までにする。続くと聞き手は情報が増えていないと感じる。"
+                "どれか1枚を図に置き換えるか、2枚を1枚に統合する。",
+                slides=streak)
+
+    over = [(r["slide"], r["metrics"]["ja_chars"]) for r in results
+            if r["metrics"]["ja_chars"] > gates["max_ja_chars"]]
+    if len(over) >= max(3, n * 0.4):
+        add("review", "deck_too_dense",
+            f"{len(over)}/{n}枚が1枚あたり {gates['max_ja_chars']}字を超えている。"
+            "1枚ずつ削るより、デッキの分量そのものを見直す (枚を増やして分ける / 節を落とす)。"
+            "口頭で話す資料なら 300字を目安にする。",
+            slides=[sl for sl, _ in over])
+    return out
 
 
 # ---------------------------------------------------------------- ビューア同期
@@ -675,9 +1355,9 @@ def sync_viewer(deck: Path, slides: list[tuple[Path, str]]) -> bool:
     if VIEWER_MARK_START not in src:
         return False
     body = ",\n".join(
-        f'      ["slides/{p.name}", {json.dumps(title, ensure_ascii=False)}]' for p, title in slides
+        f'  ["slides/{p.name}", {json.dumps(title, ensure_ascii=False)}]' for p, title in slides
     )
-    block = f"{VIEWER_MARK_START}\n    const slides = [\n{body}\n    ];\n    {VIEWER_MARK_END}"
+    block = f"{VIEWER_MARK_START}\nconst slides0 = [\n{body}\n];\n{VIEWER_MARK_END}"
     new = re.sub(
         re.escape(VIEWER_MARK_START) + r".*?" + re.escape(VIEWER_MARK_END),
         lambda _: block,
@@ -767,13 +1447,27 @@ def build_contact_sheet(page, shots: list[tuple[str, Path, bool]], out: Path, co
 # ---------------------------------------------------------------- main
 
 
+def _utf8_io() -> None:
+    """日本語しか出さないのに Windows の既定は cp932。パイプに繋ぐと落ちる。"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main() -> int:
+    _utf8_io()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("deck", type=Path, help="デッキのディレクトリ (index.html と slides/ がある場所)")
     ap.add_argument("--round", type=int, default=None, help="ラウンド番号。省略時は自動採番")
     ap.add_argument("--slide", action="append", default=None, help="特定スライドだけ検査 (例 --slide 03)")
-    ap.add_argument("--gates", type=Path, default=DEFAULT_GATES)
+    ap.add_argument("--gates", type=Path, default=None,
+                    help="既定は <deck>/gates.json、無ければ同梱の gates.json")
     ap.add_argument("--no-shots", action="store_true", help="スクリーンショットを撮らない (高速)")
+    ap.add_argument("--out", type=Path, default=None,
+                    help="結果の出力先。既定は <deck>/.loop/round-N。"
+                         "ラウンドを進めずに検査したいとき (レビュー中の1枚検査など) に使う")
     args = ap.parse_args()
 
     deck = args.deck.resolve()
@@ -789,7 +1483,8 @@ def main() -> int:
         print("検査対象のスライドがない", file=sys.stderr)
         return 2
 
-    gates = json.loads(args.gates.read_text(encoding="utf-8"))
+    gates_path = args.gates or gates_for(deck)
+    gates = json.loads(gates_path.read_text(encoding="utf-8"))
     W, H = gates["canvas"]["width"], gates["canvas"]["height"]
 
     loop_dir = deck / ".loop"
@@ -798,7 +1493,7 @@ def main() -> int:
         rnd = max(existing) + 1 if existing else 1
     else:
         rnd = args.round
-    out_dir = loop_dir / f"round-{rnd}"
+    out_dir = (args.out.resolve() if args.out else loop_dir / f"round-{rnd}")
     shot_dir = out_dir / "shots"
     shot_dir.mkdir(parents=True, exist_ok=True)
 
@@ -834,8 +1529,14 @@ def main() -> int:
             titles.append((f, data["title"] or f.stem))
 
         # スライド一覧を先に同期してから、実際の配布経路 (ビューア) を開いて確かめる。
-        synced = sync_viewer(deck, titles)
+        # --slide で絞ったときは同期しない。titles に絞った分しか入っていないので、
+        # そのまま書くと index.html のスライド一覧が1枚に削れる。
+        synced = sync_viewer(deck, titles) if not args.slide else False
         deck_findings = check_viewer(page, deck)
+        # 並びの検査は全枚そろっているときだけ。--slide で絞った結果に当てると
+        # 「図が無い枚が続く」が常に出て、指摘の意味が壊れる。
+        if not args.slide:
+            deck_findings += deck_level(results, gates)
 
         if shots:
             build_contact_sheet(page, shots, out_dir / "contact-sheet.png")
@@ -870,7 +1571,7 @@ def main() -> int:
     print()
 
     if deck_findings:
-        print("  デッキ全体 (配布経路の検査):")
+        print("  デッキ全体 (配布経路と情報量の並び):")
         for f in deck_findings:
             print(f"        {f['severity']:<6} {f['code']:<22} {f['message']}")
         print()
@@ -894,8 +1595,18 @@ def main() -> int:
     for r in results:
         m = r["metrics"]
         flag = "BLOCK" if r["counts"]["block"] else ("review" if r["counts"]["review"] else "ok   ")
+        fig = "図" if m.get("has_figure") else "  "
+        sp = m["space"]
+        layout = m["layout"]
+        geometry_blocks = sum(layout[key] for key in (
+            "overlap_count", "off_center_count", "child_shift_count",
+            "wide_connector_count", "redundant_gap_count",
+        ))
+        whitespace = "—" if sp["whitespace_ratio"] is None else f"{sp['whitespace_ratio']:.0%}"
+        groups = "—" if sp["group_separation_ratio"] is None else f"{sp['group_separation_ratio']:.2f}x"
         print(f"  [{flag}] {r['slide']:<22} 本文最小{m['min_body_font_px']:>4.0f}px 階層{m['hierarchy_ratio']:>5.2f}x "
-              f"和{m['ja_chars']:>4}字 占有{m['text_area_ratio']:.0%}  {r['headline'][:34]}")
+              f"和{m['ja_chars']:>4}字 占有{m['text_area_ratio']:.0%} 空白{whitespace:>3} 群化{groups:>5} "
+              f"幾何{geometry_blocks:>2} {fig}  {r['headline'][:34]}")
         grouped: dict[tuple[str, str], list[dict]] = {}
         for fnd in r["findings"]:
             if fnd["severity"] == "info":

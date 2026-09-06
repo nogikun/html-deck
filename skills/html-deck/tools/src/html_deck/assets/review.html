@@ -1,0 +1,1691 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- サーバ配信 (レビュー) とデッキ同梱 (file://) の両方でこの1枚を使う。
+       connect-src 'self' はレビュー時の API 用。file:// では叩かない。 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'unsafe-inline'; frame-src 'self' data:; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'">
+  <title>__DECK_TITLE__</title>
+  <script>
+    // 描画前にテーマを確定させる。あとで当てると白い画面が一瞬出る。
+    try {
+      const t = localStorage.getItem("deck-review-theme");
+      if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+    } catch (e) { /* localStorage が無い環境では system 追従のまま */ }
+  </script>
+  <style>
+    /* assets/shell.css がここに差し込まれる (init_deck.py / review_server.py)。
+       以下はレビュー画面にしか無い部品だけ。 */
+    /* __SHELL__ */
+
+    .deck { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden;
+            text-overflow: ellipsis; max-width: 34vw; }
+    .progress { width: min(22vw, 300px); height: 3px; flex: none; border-radius: 2px;
+                background: var(--line); overflow: hidden; }
+    .progress > span { display: block; height: 100%; background: var(--accent);
+                       transition: width .25s ease; }
+    .tally { font-size: 12px; color: var(--text-2); white-space: nowrap; }
+    .tally b { color: var(--hot); font-weight: 600; }
+    .btn[aria-pressed="true"] {
+      background: var(--hot-soft); border-color: color-mix(in srgb, var(--hot) 45%, transparent);
+      color: var(--hot); font-weight: 600;
+    }
+    .btn .kbd { color: var(--text-3); font: 11px/1 var(--mono); }
+    .btn[aria-pressed="true"] .kbd { color: inherit; opacity: .7; }
+    .export-menu { position: relative; }
+    .export-menu > summary { list-style: none; }
+    .export-menu > summary::-webkit-details-marker { display: none; }
+    .export-menu[open] > summary { background: var(--chrome-2); border-color: var(--line); }
+    .export-popover {
+      position: absolute; top: calc(100% + 6px); right: 0; z-index: 25; width: 236px;
+      padding: 5px; border: 1px solid var(--line-2); border-radius: 6px;
+      background: var(--card); box-shadow: var(--shadow-2);
+    }
+    .export-item {
+      display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px;
+      padding: 6px 9px; border: 0; border-radius: 4px; background: none;
+      color: var(--text); text-align: left; cursor: pointer;
+    }
+    .export-item:hover:not(:disabled), .export-item:focus-visible { background: var(--accent-soft); }
+    .export-item:disabled { opacity: .55; cursor: wait; }
+    .export-item .format { width: 42px; flex: none; font: 600 11px/1 var(--mono); color: var(--accent); }
+    .export-item .description { min-width: 0; font-size: 12px; line-height: 1.35; }
+    .export-item .description small { display: block; color: var(--text-3); font-size: 10.5px; }
+
+    /* ------------------------------------------------------- 本体 (舞台+ペイン) */
+    .work { display: grid; grid-template-columns: 1fr 0; min-height: 0; min-width: 0; }
+    body[data-review="true"] .work { grid-template-columns: 1fr 372px; }
+    .frame[data-review="true"] { outline: 2px solid var(--hot); }
+
+    /* --------------------------------------------------------------- ペイン */
+    .pane {
+      display: none; min-width: 0; min-height: 0; background: var(--chrome);
+      border-left: 1px solid var(--line); flex-direction: column;
+    }
+    body[data-review="true"] .pane { display: flex; }
+    /* 一覧とスレッドで並びを入れ替える。DOM は動かさない。 */
+    .pane-head { order: 0; flex: none; height: 40px; }
+    .composer, .legend { flex: none; }
+    body[data-pane="list"] .composer { order: 1; }
+    body[data-pane="list"] .legend { order: 2; }
+    body[data-pane="list"] .thread { order: 3; flex: 1; }
+    body[data-pane="list"] .log, body[data-pane="list"] .actions { display: none; }
+    body[data-pane="thread"] .log { display: block; order: 1; flex: 1; }
+    body[data-pane="thread"] .actions { display: flex; order: 2; }
+    /* 返信は短い。起票のときほど広い入力欄は要らない */
+    body[data-pane="thread"] .editor { min-height: 56px; }
+    body[data-pane="thread"] .composer { order: 3; border-bottom: 0; border-top: 1px solid var(--line); }
+    body[data-pane="thread"] .legend, body[data-pane="thread"] .thread { display: none; }
+    .pane-head {
+      display: flex; align-items: center; gap: 8px; padding: 0 8px 0 14px;
+      border-bottom: 1px solid var(--line);
+    }
+    .pane-head h2 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .01em; }
+    .pane-head .count { font: 11px/1 var(--mono); color: var(--text-3); }
+    .pane-head .back { display: none; }
+    body[data-pane="thread"] .pane-head .back { display: inline-flex; }
+
+    /* --------------------------------------------------- スレッド (会話) */
+    .log { display: none; overflow-y: auto; padding: 12px 12px 16px; background: var(--chrome-2);
+           min-height: 0; }
+    .msg { margin-bottom: 10px; padding: 9px 11px; border-radius: 6px; border: 1px solid var(--line);
+           background: var(--card); box-shadow: var(--shadow-1); }
+    .msg[data-role="user"] { background: var(--accent-soft); border-color:
+      color-mix(in srgb, var(--accent) 26%, transparent); margin-left: 18px; }
+    .msg[data-kind="merge"] { background: var(--ok-soft);
+      border-color: color-mix(in srgb, var(--ok) 34%, transparent); }
+    /* 確定後の追記。状態は動かないが、見え方が変わったことは知らせる */
+    .msg[data-kind="note"] { background: var(--chrome); border-style: dashed;
+      border-color: color-mix(in srgb, var(--hot) 45%, transparent); }
+    .msg-head .tag { font-weight: 700; color: var(--hot); }
+    .msg-head { display: flex; align-items: center; gap: 7px; margin-bottom: 5px;
+                font: 11px/1 var(--mono); color: var(--text-3); }
+    .msg-head .who { font-weight: 700; color: var(--text-2); }
+    .msg-head .when { margin-left: auto; }
+    .msg-body { margin: 0; font-size: 12.5px; line-height: 1.75; color: var(--text);
+                white-space: pre-wrap; word-break: break-word; }
+    .msg .changes { margin: 7px 0 0; padding: 0; list-style: none; }
+    .msg .changes li { font: 11px/1.7 var(--mono); color: var(--text-2); cursor: pointer;
+                       padding-left: 10px; border-left: 2px solid var(--line-2); }
+    .msg .changes li:hover { color: var(--accent); border-left-color: var(--accent); }
+    .chk { margin-top: 7px; display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px;
+           border-radius: 999px; font: 11px/1 var(--mono); background: var(--ok-soft); color: var(--ok); }
+    .chk[data-block="true"] { background: var(--hot-soft); color: var(--hot); }
+    .chk .lv { opacity: .7; }
+    .msg .esc { margin-top: 6px; font-size: 11px; color: var(--text-2); }
+
+    .actions { display: none; flex-wrap: wrap; align-items: center; gap: 8px;
+               padding: 9px 12px; border-top: 1px solid var(--line); background: var(--chrome); }
+    .actions .note { flex: 1; min-width: 0; font-size: 11px; line-height: 1.5; color: var(--text-3); }
+    .abtn { height: 28px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: 4px;
+            background: var(--card); color: var(--text); font-size: 12px; cursor: pointer; }
+    .abtn:hover:not(:disabled) { border-color: var(--text-3); }
+    .abtn:disabled { opacity: .45; cursor: default; }
+    .abtn[data-kind="merge"] { background: var(--ok); border-color: var(--ok); color: #fff;
+                               font-weight: 600; }
+    .mergebox { display: none; width: 100%; }
+    .mergebox[data-show="true"] { display: block; }
+    .mergebox input {
+      width: 100%; height: 30px; padding: 0 9px; border: 1px solid var(--accent); border-radius: 4px;
+      background: var(--card); color: var(--text); font: 12.5px var(--ui); outline: none;
+    }
+    .mergebox .row { display: flex; gap: 8px; margin-top: 7px; }
+    .mergebox p { margin: 6px 0 0; font-size: 11px; line-height: 1.55; color: var(--text-3); }
+
+    .item .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--hot);
+                 display: inline-block; }
+
+    .composer { padding: 12px 12px 10px; border-bottom: 1px solid var(--line); background: var(--chrome); }
+    .editor {
+      min-height: 92px; max-height: 34vh; overflow-y: auto; padding: 9px 10px;
+      border: 1px solid var(--line-2); border-radius: 4px; background: var(--card); color: var(--text);
+      font: 13.5px/1.9 var(--ui); white-space: pre-wrap; word-break: break-word;
+      outline: none; cursor: text;
+    }
+    .editor:focus-within, .editor:focus { border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent) inset; }
+    .editor[data-empty="true"]::before {
+      content: attr(data-placeholder); color: var(--text-3); pointer-events: none;
+    }
+
+    /* #N ブロック。文の主語として本文の中に居座る */
+    .pill {
+      display: inline-flex; align-items: baseline; gap: 5px; vertical-align: baseline;
+      margin: 0 1px; padding: 1px 7px 2px; border-radius: 4px;
+      background: var(--accent-soft); color: var(--accent);
+      border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+      font-size: 12.5px; line-height: 1.5; cursor: default; user-select: all;
+      -webkit-user-modify: read-only;
+    }
+    .pill[data-kind="region"] {
+      background: var(--hot-soft); color: var(--hot);
+      border-color: color-mix(in srgb, var(--hot) 40%, transparent);
+    }
+    .pill[data-active="true"] { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+    .pill .pn { font: 600 12px/1.5 var(--mono); }
+    .pill .pl { max-width: 14ch; overflow: hidden; text-overflow: ellipsis;
+                white-space: nowrap; display: inline-block; vertical-align: bottom;
+                color: color-mix(in srgb, currentColor 78%, var(--text)); }
+
+    .pilltools {
+      position: fixed; z-index: 20; display: none; gap: 2px; padding: 3px;
+      background: var(--card); border: 1px solid var(--line-2); border-radius: 5px;
+      box-shadow: var(--shadow-2);
+    }
+    .pilltools[data-show="true"] { display: flex; }
+    .pilltools button {
+      height: 24px; padding: 0 8px; border: 0; border-radius: 3px; background: none;
+      color: var(--text); font-size: 11.5px; cursor: pointer; white-space: nowrap;
+    }
+    .pilltools button:hover { background: var(--chrome-2); }
+
+    .composer-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+    .hint { flex: 1; min-width: 0; font-size: 11px; line-height: 1.45; color: var(--text-3); }
+    .send {
+      height: 30px; padding: 0 14px; border: 0; border-radius: 4px; flex: none;
+      background: var(--brand); color: var(--brand-ink); font-size: 12.5px; font-weight: 600;
+      cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+    }
+    .send:hover:not(:disabled) { filter: brightness(.94); }
+    .send:disabled { background: var(--line); color: var(--text-3); cursor: default; }
+    .send .kbd { font: 11px/1 var(--mono); opacity: .75; }
+
+    .legend { padding: 8px 12px 10px; font-size: 11px; line-height: 1.7; color: var(--text-3);
+              border-bottom: 1px solid var(--line); background: var(--chrome-2); }
+    .legend kbd {
+      font: 11px/1 var(--mono); padding: 2px 5px; border: 1px solid var(--line-2);
+      border-bottom-width: 2px; border-radius: 3px; background: var(--card); color: var(--text-2);
+    }
+
+    .thread { overflow-y: auto; padding: 10px 12px 16px; background: var(--chrome-2); min-height: 0; }
+    .thread .none { color: var(--text-3); font-size: 11.5px; padding: 4px 2px; }
+    .item {
+      margin-bottom: 8px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 5px;
+      background: var(--card); box-shadow: var(--shadow-1); cursor: pointer;
+    }
+    .item:hover { border-color: var(--line-2); }
+    .item[data-focus="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .item-head { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; }
+    .item-head .id { font: 600 11px/1 var(--mono); color: var(--text-2); }
+    .badge {
+      font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px;
+      background: var(--hot-soft); color: var(--hot);
+    }
+    .badge[data-s="merged"], .badge[data-s="applied"] { background: var(--ok-soft); color: var(--ok); }
+    .badge[data-s="rejected"], .badge[data-s="closed"] { background: var(--chrome-2); color: var(--text-3);
+                                border: 1px solid var(--line); }
+    .badge[data-s="deferred"], .badge[data-s="proposed"] { background: var(--accent-soft); color: var(--accent); }
+    .badge[data-s="waiting_main"] { background: color-mix(in srgb, #8764b8 16%, transparent); color: #8764b8; }
+    .item-head .refs { margin-left: auto; font: 11px/1 var(--mono); color: var(--text-3); }
+    .item p { margin: 0; font-size: 12px; line-height: 1.65; color: var(--text); }
+    .item .why { margin-top: 5px; font-size: 11px; line-height: 1.6; color: var(--text-2);
+                 padding-left: 8px; border-left: 2px solid var(--line-2); }
+
+    /* ----------------------------------------------------------- ステータスバー */
+    /* この枚に指摘があることは、キャンバスではなくここで知らせる。
+       スライドの上に描いてよいのはレビュー中だけ。 */
+    .status .pins { display: none; align-items: center; gap: 5px; flex: none;
+                    font: 11px/1 var(--mono); color: var(--text-3); }
+    .status .pins[data-show="true"] { display: inline-flex; }
+    .status .pins .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); }
+    .status .pins[data-open="true"] { color: var(--hot); }
+    .status .pins[data-clickable="true"] { cursor: pointer; }
+    .status .pins[data-hidden="true"] { opacity: .45; }
+    .status .pins[data-open="true"] .dot { background: var(--hot); }
+
+    .toast {
+      position: fixed; left: 50%; bottom: 46px; transform: translateX(-50%) translateY(6px);
+      z-index: 30; padding: 9px 16px; border-radius: 4px; max-width: 60vw;
+      background: var(--card); color: var(--text); border: 1px solid var(--line-2);
+      box-shadow: var(--shadow-2); font-size: 12.5px;
+      opacity: 0; transition: opacity .16s ease, transform .16s ease; pointer-events: none;
+    }
+    .toast[data-show="true"] { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .toast[data-kind="warn"] { border-color: color-mix(in srgb, var(--hot) 55%, transparent);
+                               color: var(--hot); }
+
+    .server-prompt { display: none; position: fixed; inset: 0; z-index: 40; align-items: center;
+                     justify-content: center; padding: 20px; }
+    .server-prompt[data-show="true"] { display: flex; }
+    .server-prompt .backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, .32); }
+    .server-prompt .dialog { position: relative; width: min(680px, 100%); padding: 22px;
+                             border: 1px solid var(--line-2); border-radius: 8px;
+                             background: var(--card); color: var(--text); box-shadow: var(--shadow-2); }
+    .server-prompt h2 { margin: 0 34px 10px 0; font-size: 18px; }
+    .server-prompt p { margin: 8px 0; color: var(--text-2); font-size: 13px; line-height: 1.6; }
+    .server-prompt textarea { display: block; width: 100%; min-height: 132px; margin: 14px 0;
+                              padding: 12px; resize: vertical; border: 1px solid var(--line);
+                              border-radius: 5px; background: var(--chrome-2); color: var(--text);
+                              font: 12px/1.6 var(--mono); box-sizing: border-box; }
+    .server-prompt .copy { width: 100%; padding: 10px 14px; border: 0; border-radius: 5px;
+                           background: var(--accent); color: white; cursor: pointer; font-weight: 600; }
+    .server-prompt .close { position: absolute; top: 12px; right: 12px; }
+
+    /* 縦に狭い / 横に狭いときはペインを下に回す */
+    @media (max-width: 1060px) {
+      body[data-review="true"] .work { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+      body[data-review="true"] .pane { border-left: 0; border-top: 1px solid var(--line);
+                                       max-height: 46vh; }
+      .pane { grid-template-rows: 40px auto 1fr; }
+    }
+  </style>
+</head>
+<body data-review="false" data-pane="list">
+  <header class="toolbar">
+    <div class="logo" aria-hidden="true">S</div>
+    <div class="deck" id="deckName">__DECK_TITLE__</div>
+    <div class="sep"></div>
+    <button class="btn" id="modeBtn" type="button" aria-pressed="false">
+      <span aria-hidden="true">✎</span><span id="modeLabel">レビュー</span><span class="kbd">E</span>
+    </button>
+    <div class="spacer"></div>
+    <div class="tally" id="tally"></div>
+    <div class="progress" aria-hidden="true"><span id="progress"></span></div>
+    <div class="sep"></div>
+    <details class="export-menu" id="exportMenu">
+      <summary class="btn" title="書き出し形式を選択" aria-label="書き出し形式を選択">
+        <span aria-hidden="true">☰</span><span>エクスポート</span>
+      </summary>
+      <div class="export-popover" role="menu" aria-label="書き出し形式">
+        <button class="export-item" type="button" role="menuitem" data-export-kind="pdf">
+          <span class="format">PDF</span>
+          <span class="description">固定PDF<small>見た目をそのまま保存</small></span>
+        </button>
+        <button class="export-item" type="button" role="menuitem" data-export-kind="pptx">
+          <span class="format">PPTX</span>
+          <span class="description">PowerPoint<small>編集可能なスライドとして変換</small></span>
+        </button>
+        <button class="export-item" type="button" role="menuitem" data-export-kind="html">
+          <span class="format">HTML</span>
+          <span class="description">1枚HTML<small>外部参照を畳んで保存</small></span>
+        </button>
+      </div>
+    </details>
+    <div class="sep"></div>
+    <button class="btn icon" id="themeBtn" type="button" title="表示テーマ (T)" aria-label="表示テーマ"></button>
+  </header>
+
+  <div class="work">
+    <main class="stage">
+      <div class="frame" id="frameShell">
+        <iframe id="slide" title="スライド" sandbox="allow-same-origin"></iframe>
+      </div>
+      <div class="banner" id="banner"></div>
+    </main>
+
+    <aside class="pane" id="pane">
+      <div class="pane-head">
+        <button class="btn icon back" id="paneBack" type="button" title="一覧へ戻る"
+                aria-label="一覧へ戻る">←</button>
+        <h2 id="paneTitle">レビュー</h2>
+        <span class="count" id="paneCount"></span>
+        <div class="spacer"></div>
+        <button class="btn icon" id="paneClose" type="button" title="閉じる (E)" aria-label="閉じる">✕</button>
+      </div>
+
+      <div class="composer">
+        <div class="editor" id="editor" contenteditable="true" role="textbox" aria-multiline="true"
+             aria-label="指示" data-empty="true"
+             data-placeholder="スライドの要素をクリックすると #1 が入る。#1 を主語にして書く。"></div>
+        <div class="composer-foot">
+          <div class="hint" id="hint"></div>
+          <button class="send" id="send" type="button" disabled>送信<span class="kbd">⌘⏎</span></button>
+        </div>
+      </div>
+
+      <div class="legend">
+        <kbd>クリック</kbd> 要素を #N として本文に挿す ／ <kbd>ドラッグ</kbd> 領域を指定<br>
+        <kbd>ピルをクリック</kbd> 親要素へ広げる・外す ／ <kbd>⌫</kbd> ピルごと消す ／
+        <kbd>Esc</kbd> 全部外す<br>
+        <kbd>P</kbd> ピンを隠す ／ <kbd>E</kbd> レビューを閉じる (枠は全部消える)
+      </div>
+
+      <div class="log" id="log"></div>
+      <div class="actions" id="actions"></div>
+      <div class="thread" id="thread"></div>
+    </aside>
+  </div>
+
+  <footer class="status">
+    <button class="sbtn" id="prev" type="button" aria-label="前へ">◀</button>
+    <button class="sbtn" id="next" type="button" aria-label="次へ">▶</button>
+    <span class="counter" id="counter">00 / 00</span>
+    <span class="slidetitle" id="title"></span>
+    <span class="pins" id="pins" data-show="false"></span>
+    <span class="zoom" id="zoom"></span>
+    <button class="sbtn" id="fullscreen" type="button" aria-label="全画面" title="全画面">⛶</button>
+  </footer>
+
+  <div class="pilltools" id="pilltools" data-show="false">
+    <button type="button" id="ptUp">↑ 親要素へ</button>
+    <button type="button" id="ptDel">× 外す</button>
+  </div>
+  <div class="toast" id="toast"></div>
+  <div class="server-prompt" id="serverPrompt" data-show="false">
+    <div class="backdrop" id="serverPromptBackdrop"></div>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="serverPromptTitle">
+      <button class="btn icon close" id="serverPromptClose" type="button" aria-label="閉じる">✕</button>
+      <h2 id="serverPromptTitle">レビューと書き出しにはサーバーが必要です</h2>
+      <p>file://ではDOMレビューとPDF/PPTX/1枚HTMLの書き出しができません。以下のプロンプトをコピーして、html-deckのルートで実行してください。</p>
+      <textarea id="serverPromptText" readonly aria-label="review_server.py の起動依頼プロンプト"></textarea>
+      <button class="copy" id="serverPromptCopy" type="button">プロンプトをコピー</button>
+      <p id="serverPromptStatus" aria-live="polite"></p>
+    </section>
+  </div>
+
+<script>
+/* このファイルは3通りの配られ方をする。中身は同じで、スライドの出どころだけが違う。
+
+     review_server.py が配信   → /__review/api/slides から引く。レビュー機能あり
+     デッキ同梱の index.html   → 下の静的な配列から引く (check_deck.py が書き換える)
+     bundle_deck.py の1枚もの  → 同じ配列に HTML 本文が入っていて srcdoc で流し込む
+
+   レビュー機能が http でしか動かないのは、file:// だと親から iframe の
+   contentDocument に到達できないため。ファイルを分けるのではなく、
+   到達できない環境では起動方法の案内に置き換える。 */
+const SERVED = location.protocol === "http:" || location.protocol === "https:";
+const BUNDLED = false;   // bundle_deck.py が true にして、下の配列に本文を入れる
+
+// このブロックは check_deck.py が slides/*.html の <title> から自動再生成する。
+// 手で書き換えても次回の検査で上書きされる。順序はファイル名順。
+// <slides>
+const slides0 = [
+];
+// </slides>
+
+const TOKEN = new URLSearchParams(location.search).get("t") || "";
+const $ = (id) => document.getElementById(id);
+const frame = $("slide"), frameShell = $("frameShell"), stage = document.querySelector(".stage");
+const editor = $("editor");
+
+const api = (path, opt = {}) => fetch(path, {
+  ...opt,
+  headers: { "X-Review-Token": TOKEN, ...(opt.body ? { "Content-Type": "application/json" } : {}), ...(opt.headers || {}) },
+});
+
+let slides = [], index = 0, review = false;
+let items = [];                 // 送信済みの指摘
+let doc = null, ui = null;
+let hoverEl = null, dragFrom = null, dragging = false, justDragged = false;
+let focusItem = null;           // ペインで選択中の指摘 (ピンを太くする)
+let logs = new Map();           // id -> イベント列 (ポーリングで更新)
+let openId = null;              // スレッドを開いているならその id
+let rev = "";                   // スレッドの版。変わったときだけ描き直す
+let pollTimer = null;
+let showPins = true;            // レビュー中にピンだけ落とす (P)。ドラフト選択は残る
+
+/* ================================================================ 参照ストア
+
+   エディタの本文が正本。ピルが本文から消えたらその参照も消える。
+   番号 (#1 #2) は「本文に最初に現れた順」で毎回振り直す。ストアの登録順ではない。
+   コピペで同じピルが2つになっても、同じ参照=同じ番号として扱う。
+   =========================================================================== */
+const refStore = new Map();     // key -> {key, kind, el?, rect?}
+let refNums = new Map();        // key -> N
+let seq = 0;
+
+function refByEl(el) {
+  for (const r of refStore.values()) if (r.kind === "element" && r.el === el) return r;
+  return null;
+}
+
+function orderedRefs() {
+  const out = [], seen = new Set();
+  for (const p of editor.querySelectorAll(".pill[data-key]")) {
+    const r = refStore.get(p.dataset.key);
+    if (r && !seen.has(r.key)) { seen.add(r.key); out.push(r); }
+  }
+  return out;
+}
+
+// ピルは文の中に居座るので短くする。素性 (セレクタと実測サイズ) は title 側へ。
+function labelOf(ref) {
+  if (ref.kind === "region") return `領域 ${ref.rect.w}×${ref.rect.h}`;
+  const t = txtOf(ref.el);
+  return t ? t.slice(0, 24) : selOf(ref.el).split(" > ").pop();
+}
+
+function titleOf(ref, n) {
+  if (ref.kind === "region") {
+    const r = ref.rect;
+    return `#${n} 領域 x=${r.x} y=${r.y} ${r.w}×${r.h}`;
+  }
+  const px = doc ? Math.round(parseFloat(getComputedStyle(ref.el).fontSize)) : null;
+  return `#${n} ${selOf(ref.el)}${px ? "  " + px + "px" : ""}\n「${txtOf(ref.el)}」`;
+}
+
+function makePill(ref) {
+  const p = document.createElement("span");
+  p.className = "pill";
+  p.contentEditable = "false";
+  p.dataset.key = ref.key;
+  p.dataset.kind = ref.kind;
+  const n = document.createElement("span"); n.className = "pn"; n.textContent = "#?";
+  const l = document.createElement("span"); l.className = "pl"; l.textContent = labelOf(ref);
+  p.append(n, l);
+  return p;
+}
+
+function addRef(ref) {
+  ref.key = "r" + (++seq);
+  refStore.set(ref.key, ref);
+  insertNodes([makePill(ref), document.createTextNode(" ")]);
+  syncRefs();
+}
+
+function dropRef(key) {
+  refStore.delete(key);
+  for (const p of [...editor.querySelectorAll(`.pill[data-key="${key}"]`)]) {
+    const nx = p.nextSibling;
+    if (nx && nx.nodeType === 3 && /^ /.test(nx.textContent)) nx.textContent = nx.textContent.slice(1);
+    p.remove();
+  }
+  hidePillTools();
+  syncRefs();
+}
+
+function clearRefs() {
+  refStore.clear();
+  for (const p of [...editor.querySelectorAll(".pill")]) p.remove();
+  hidePillTools();
+  syncRefs();
+}
+
+/** 本文からピルを拾い直して、番号・ラベル・ピン・送信可否を揃える。 */
+function syncRefs() {
+  const live = new Set([...editor.querySelectorAll(".pill[data-key]")].map((p) => p.dataset.key));
+  for (const k of [...refStore.keys()]) if (!live.has(k)) refStore.delete(k);
+
+  refNums = new Map(orderedRefs().map((r, i) => [r.key, i + 1]));
+  for (const p of editor.querySelectorAll(".pill[data-key]")) {
+    const ref = refStore.get(p.dataset.key);
+    const n = refNums.get(p.dataset.key);
+    p.querySelector(".pn").textContent = "#" + (n || "?");
+    if (ref) {
+      p.querySelector(".pl").textContent = labelOf(ref);
+      p.title = titleOf(ref, n);
+      p.dataset.kind = ref.kind;
+    }
+  }
+  updateEmpty();
+  // 起票は指定が要る (主語が無いと直す場所が決まらない)。返信は本文だけでよい。
+  $("send").disabled = openId ? !(editor.textContent || "").trim() : refNums.size === 0;
+  $("hint").textContent = refNums.size
+    ? `${refNums.size}件を指定中。#N がそのまま指示の主語になる。`
+    : (openId ? "この指摘についてだけ話す。別の場所は一覧に戻って新しく起票する。"
+              : "要素をクリックすると本文に #1 が入る。");
+  paint();
+}
+
+function updateEmpty() {
+  const has = editor.querySelector(".pill") || (editor.textContent || "").trim();
+  if (openId) $("send").disabled = !(editor.textContent || "").trim();
+  editor.dataset.empty = has ? "false" : "true";
+}
+
+/* ================================================================ エディタ入出力 */
+
+let savedRange = null;
+
+function saveRange() {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return;
+  const r = sel.getRangeAt(0);
+  if (editor.contains(r.commonAncestorContainer)) savedRange = r.cloneRange();
+}
+
+function rangeAtEnd() {
+  const r = document.createRange();
+  r.selectNodeContents(editor);
+  r.collapse(false);
+  return r;
+}
+
+function caretAfter(node) {
+  const r = document.createRange();
+  r.setStartAfter(node);
+  r.collapse(true);
+  const sel = window.getSelection();
+  sel.removeAllRanges(); sel.addRange(r);
+  savedRange = r.cloneRange();
+}
+
+/** 保存しておいたキャレット位置へノードを挿す。iframe をクリックしても位置を失わない。 */
+function insertNodes(nodes) {
+  editor.focus();
+  const keep = savedRange && editor.contains(savedRange.commonAncestorContainer) ? savedRange : null;
+  const range = keep || rangeAtEnd();
+  range.deleteContents();
+
+  // 直前が文字なら空白を1つ挟む。「#1の」ではなく「#1 の」に見えるようにする。
+  const before = range.startContainer;
+  if (before.nodeType === 3 && range.startOffset > 0
+      && !/[\s(「（]$/.test(before.textContent.slice(0, range.startOffset))) {
+    const sp = document.createTextNode(" ");
+    range.insertNode(sp);
+    range.setStartAfter(sp); range.collapse(true);
+  }
+
+  const frag = document.createDocumentFragment();
+  for (const n of nodes) frag.appendChild(n);
+  const last = frag.lastChild;
+  range.insertNode(frag);
+  if (last) caretAfter(last);
+  editor.scrollTop = editor.scrollHeight;
+}
+
+/** 本文を #N 入りのプレーンテキストへ。これが instruction になる。 */
+function readEditor(root = editor) {
+  let out = "";
+  const walk = (node) => {
+    for (const n of node.childNodes) {
+      if (n.nodeType === 3) { out += n.textContent; continue; }
+      if (n.nodeType !== 1) continue;
+      if (n.classList && n.classList.contains("pill")) {
+        out += "#" + (refNums.get(n.dataset.key) || n.querySelector(".pn")?.textContent.replace("#", "") || "?");
+        continue;
+      }
+      if (n.tagName === "BR") { out += "\n"; continue; }
+      if (/^(DIV|P|LI|SECTION)$/.test(n.tagName) && out && !out.endsWith("\n")) out += "\n";
+      walk(n);
+    }
+  };
+  walk(root);
+  return out.replace(/ /g, " ").replace(/[ \t]+\n/g, "\n").trim();
+}
+
+/* ---- 原子性: ピルは1つの文字として消える -------------------------------- */
+
+function pillAt(range, dir) {
+  if (!range.collapsed) return null;
+  const node = range.startContainer, off = range.startOffset;
+  const isPill = (n) => n && n.nodeType === 1 && n.classList && n.classList.contains("pill");
+  if (node.nodeType === 3) {
+    if (dir < 0) return off === 0 ? (isPill(node.previousSibling) ? node.previousSibling : null) : null;
+    return off === node.textContent.length ? (isPill(node.nextSibling) ? node.nextSibling : null) : null;
+  }
+  const cand = dir < 0 ? node.childNodes[off - 1] : node.childNodes[off];
+  return isPill(cand) ? cand : null;
+}
+
+/** 打った「#2」を既存の参照へ張り直す。テキストのままでも意味は通るが、ブロックにしたい。 */
+function linkifyBeforeCaret() {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return false;
+  const r = sel.getRangeAt(0);
+  if (!r.collapsed || r.startContainer.nodeType !== 3) return false;
+  const node = r.startContainer, off = r.startOffset;
+  const m = node.textContent.slice(0, off).match(/#(\d{1,2})$/);
+  if (!m) return false;
+  const ref = orderedRefs()[parseInt(m[1], 10) - 1];
+  if (!ref) return false;
+  const cut = document.createRange();
+  cut.setStart(node, off - m[0].length);
+  cut.setEnd(node, off);
+  cut.deleteContents();
+  const pill = makePill(ref);
+  cut.insertNode(pill);
+  caretAfter(pill);
+  syncRefs();
+  return true;
+}
+
+/* ---- クリップボード: コピペしてもブロックのまま ------------------------- */
+
+const CLIP_MARK = "data-deck-refs";
+
+function onCopy(e) {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount || sel.isCollapsed) return;
+  const range = sel.getRangeAt(0);
+  if (!editor.contains(range.commonAncestorContainer)) return;
+  const holder = document.createElement("div");
+  holder.appendChild(range.cloneContents());
+  const text = readEditor(holder);
+  holder.setAttribute(CLIP_MARK, "1");
+  e.clipboardData.setData("text/html", holder.outerHTML);
+  e.clipboardData.setData("text/plain", text);
+  e.preventDefault();
+  if (e.type === "cut") { range.deleteContents(); syncRefs(); }
+}
+
+/** 外から来た HTML は信用しない。data-key とテキストだけを拾って組み直す。 */
+function onPaste(e) {
+  e.preventDefault();
+  const html = e.clipboardData.getData("text/html") || "";
+  const plain = e.clipboardData.getData("text/plain") || "";
+  const nodes = [];
+
+  if (html.includes(CLIP_MARK)) {
+    const box = document.createElement("div");
+    box.innerHTML = html;
+    const src = box.querySelector("[" + CLIP_MARK + "]") || box;
+    const walk = (node) => {
+      for (const n of node.childNodes) {
+        if (n.nodeType === 3) { nodes.push(document.createTextNode(n.textContent)); continue; }
+        if (n.nodeType !== 1) continue;
+        if (n.classList && n.classList.contains("pill")) {
+          const ref = refStore.get(n.dataset.key || "");
+          nodes.push(ref ? makePill(ref)
+                         : document.createTextNode(n.querySelector(".pn")?.textContent || ""));
+          continue;
+        }
+        if (n.tagName === "BR") { nodes.push(document.createElement("br")); continue; }
+        walk(n);
+      }
+    };
+    walk(src);
+  } else {
+    const refs = orderedRefs();
+    for (const part of plain.split(/(#\d{1,2})/)) {
+      if (!part) continue;
+      const m = part.match(/^#(\d{1,2})$/);
+      const ref = m ? refs[parseInt(m[1], 10) - 1] : null;
+      if (ref) { nodes.push(makePill(ref)); continue; }
+      for (const [i, line] of part.split("\n").entries()) {
+        if (i) nodes.push(document.createElement("br"));
+        if (line) nodes.push(document.createTextNode(line));
+      }
+    }
+  }
+  if (nodes.length) insertNodes(nodes);
+  syncRefs();
+}
+
+/* ---- ピルのツール (親要素へ広げる / 外す) -------------------------------- */
+
+let activePill = null;
+
+function showPillTools(pill) {
+  if (activePill) activePill.dataset.active = "false";
+  activePill = pill;
+  pill.dataset.active = "true";
+  const r = pill.getBoundingClientRect();
+  const tools = $("pilltools");
+  tools.dataset.show = "true";
+  tools.style.left = Math.max(8, Math.min(r.left, innerWidth - 190)) + "px";
+  tools.style.top = (r.top > 40 ? r.top - 34 : r.bottom + 6) + "px";
+  const ref = refStore.get(pill.dataset.key);
+  $("ptUp").style.display = ref && ref.kind === "element" ? "" : "none";
+}
+
+function hidePillTools() {
+  if (activePill) activePill.dataset.active = "false";
+  activePill = null;
+  $("pilltools").dataset.show = "false";
+}
+
+/* ================================================================ 表示の土台 */
+
+function fitDeck() {
+  const w = Math.max(stage.clientWidth - 56, 160), h = Math.max(stage.clientHeight - 40, 90);
+  const s = Math.min(w / 1600, h / 900);
+  frameShell.style.setProperty("--deck-scale", String(s));
+  $("zoom").textContent = Math.round(s * 100) + "%";
+}
+
+function banner(msg) { const b = $("banner"); b.textContent = msg; b.dataset.show = msg ? "true" : "false"; }
+function toast(msg, kind) {
+  const t = $("toast"); t.textContent = msg; t.dataset.kind = kind || ""; t.dataset.show = "true";
+  clearTimeout(toast._id); toast._id = setTimeout(() => { t.dataset.show = "false"; }, 3000);
+}
+
+/* 書き出しはサーバ側のスクリプト (export_pdf.py / export_pptx.py / bundle_deck.py) をそのまま叩く。
+   ブラウザ側にロジックを持たせると、CLI と挙動が割れて片方だけ直す事故になる。 */
+let pdfFallbackOK = false;   // 書体が無いと言われた直後の2度押しだけ許す
+const exportMenu = $("exportMenu");
+
+async function exportAs(kind, btn) {
+  const label = btn.textContent;
+  exportMenu.open = false;
+  btn.disabled = true; btn.textContent = "書き出し中…";
+  try {
+    // 読んだら必ず落とす。残すと、間に別の操作を挟んだ後の PDF まで
+    // 「承知のうえ」扱いになる。許すのは失敗の直後に押し直したときだけ。
+    const force = kind === "pdf" && pdfFallbackOK;
+    pdfFallbackOK = false;
+    const r = await api("/__review/api/export", {
+      method: "POST", body: JSON.stringify({ kind, force }),
+    });
+    const type = r.headers.get("Content-Type") || "";
+    if (r.ok && !type.includes("application/json")) {
+      const cd = r.headers.get("Content-Disposition") || "";
+      const name = cd.match(/filename="([^"]+)"/)?.[1]
+        || ({ pdf: "deck.pdf", pptx: "deck.pptx", html: "deck.html" }[kind] || "deck");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(await r.blob()); a.download = name;
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      toast(`${name} をダウンロードしました`);
+      return;
+    }
+    const body = await r.json();
+    if (r.ok) {
+      // 成功でも警告は出る (畳めなかった参照など)。黙って成功と言わない。
+      const warned = /(^|\n)warning:/.test(body.log || "");
+      if (warned) console.warn(`[export ${kind}]\n` + body.log);
+      const last = body.log.split(/\r?\n/).filter(Boolean).slice(-1)[0] || "書き出した";
+      toast(last + (warned ? " — 警告あり (コンソール)" : ""), warned ? "warn" : "");
+    } else if (kind === "pdf" && /allow-font-fallback/.test(body.error || "")) {
+      pdfFallbackOK = true;
+      toast("指定の書体がこの環境に無い。もう一度押すと代替書体のまま書き出す", "warn");
+    } else {
+      // トーストは1行しか出せない。原因の全文はコンソールに残す。
+      console.error(`[export ${kind}]\n` + (body.error || "(理由不明)"));
+      toast("書き出しに失敗: " + (body.error || "").split(/\r?\n/)[0] + " — 詳細はコンソール", "warn");
+    }
+  } catch (e) {
+    console.error(`[export ${kind}]`, e);
+    toast("書き出しに失敗: " + e.message, "warn");
+  } finally {
+    btn.disabled = false; btn.textContent = label;
+  }
+}
+
+const THEME_ICON = { light: "☀", dark: "☾" };
+function currentTheme() {
+  return document.documentElement.dataset.theme
+    || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+}
+// アイコンは「切り替え先」を出す。dataset は触らないので system 追従を殺さない。
+function paintThemeBtn() {
+  const t = currentTheme();
+  $("themeBtn").textContent = THEME_ICON[t === "dark" ? "light" : "dark"];
+  $("themeBtn").title = t === "dark" ? "白モードにする (T)" : "ナイトモードにする (T)";
+}
+// 固定するのは、ユーザーが明示的に切り替えたときだけ
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem("deck-review-theme", t); } catch (e) { /* 保存できなくても動く */ }
+  paintThemeBtn();
+}
+
+async function boot() {
+  paintThemeBtn();
+  if (SERVED) {
+    const meta = await (await api("/__review/api/slides")).json();
+    slides = meta.slides || [];
+    $("deckName").textContent = meta.deck || "deck";
+    document.title = `レビュー — ${meta.deck || "deck"}`;
+    await pollThreads(true);
+    startPolling();
+  } else {
+    // 静的な配列は [参照, タイトル] の2要素。API と同じ形に均してから使う。
+    slides = slides0.map(([ref, title]) => ({
+      id: BUNDLED ? title : ref.split("/").pop().replace(/\.html$/, ""),
+      file: ref, title,
+    }));
+    // レビューはサーバが要るが、ボタンは起動方法の案内に使う。
+    $("pins").hidden = true;
+  }
+  if (!slides.length) { banner("スライドがありません"); return; }
+  render();
+}
+
+/* ================================================================ スレッド
+
+   サーバは追記専用の JSONL を持っていて、版 (rev) が変わったときだけ全部返す。
+   ローカルの HTTP なので2秒ポーリングで足りる。SSE の再接続を抱えるほどの相手ではない。
+   =========================================================================== */
+
+async function pollThreads(force) {
+  try {
+    const q = force ? "" : `?since=${encodeURIComponent(rev)}`;
+    const r = await api("/__review/api/threads" + q);
+    if (!r.ok) return;
+    const body = await r.json();
+    if (!body.changed) return;
+    rev = body.rev;
+    logs = new Map((body.threads || []).map((th) => [th.id, th.log || []]));
+    rebuildItems();
+    if (openId && !logs.has(openId)) openId = null;
+    renderPane();
+    paint();
+  } catch { /* サーバが落ちているだけ。次の周期で拾う */ }
+}
+
+function startPolling() {
+  clearInterval(pollTimer);
+  pollTimer = setInterval(() => { if (!document.hidden) pollThreads(false); }, 2000);
+}
+
+const logOf = (id) => logs.get(id) || [];
+const stateOf = (id) => {
+  const l = logOf(id);
+  for (let i = l.length - 1; i >= 0; i -= 1) if (l[i].state) return l[i].state;
+  return "open";
+};
+
+/* 既読の位置はブラウザ側に持つ。サーバの記録 (cursor.json) はエージェント用で別物。 */
+const seenKey = () => `deck-review-seen:${location.port}:${$("deckName").textContent}`;
+function seenMap() {
+  try { return JSON.parse(localStorage.getItem(seenKey()) || "{}"); } catch { return {}; }
+}
+function markSeen(id) {
+  const l = logOf(id);
+  if (!l.length) return;
+  const m = seenMap();
+  m[id] = l[l.length - 1].seq;
+  localStorage.setItem(seenKey(), JSON.stringify(m));
+}
+function unreadOf(id) {
+  const l = logOf(id);
+  if (!l.length) return 0;
+  const seen = seenMap()[id] || 0;
+  return l.filter((e) => e.seq > seen && e.role === "ai").length;
+}
+
+/* ピンと一覧が見ているもの。起票イベント (seq 1) と最後の state から作る。
+   スレッドが正本なので、別の索引を取りに行かない。 */
+function rebuildItems() {
+  items = [...logs.entries()]
+    .filter(([, log]) => log.length)
+    .map(([id, log]) => ({
+      id,
+      status: stateOf(id),
+      slide: log[0].slide || {},
+      instruction: log[0].text || "",
+      refs: log[0].refs || [],
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const open = items.filter((i) => i.status === "open").length;
+  $("tally").innerHTML = items.length
+    ? `指摘 ${items.length}件<span> / </span><b>未反映 ${open}件</b>` : "";
+  if (slides.length) renderPins();
+}
+
+// レビュー中でも素のレイアウトを確かめたいことがある。ピンだけ落とす。
+// 入力欄にフォーカスがあるとキーは本文の文字になるので、フッタのバッジからも押せる。
+function togglePins() {
+  if (!review) return;
+  showPins = !showPins;
+  paint(); renderPins();
+  toast(showPins ? "ピンを表示" : "ピンを隠した (P またはバッジで戻す)");
+}
+
+function renderPins() {
+  const el = $("pins");
+  const mine = items.filter((i) => i.slide?.id === slides[index]?.id);
+  const open = mine.filter((i) => i.status === "open").length;
+  el.dataset.show = mine.length ? "true" : "false";
+  el.dataset.open = open ? "true" : "false";
+  el.dataset.clickable = String(review);
+  el.dataset.hidden = String(review && !showPins);
+  el.textContent = "";
+  if (!mine.length) return;
+  const dot = document.createElement("span"); dot.className = "dot";
+  const n = document.createElement("span");
+  n.textContent = open ? `${mine.length} (未反映 ${open})` : String(mine.length);
+  el.append(dot, n);
+  el.title = (open ? `この枚の指摘 ${mine.length}件 / うち未反映 ${open}件`
+                   : `この枚の指摘 ${mine.length}件`)
+           + (review ? (showPins ? " — クリックでピンを隠す (P)" : " — クリックでピンを出す (P)") : "");
+}
+
+function render() {
+  const s = slides[index];
+  const had = refStore.size;
+  if (openId && logOf(openId)[0]?.slide?.id !== s.id) { openId = null; focusItem = null; }
+  refStore.clear(); refNums = new Map(); hoverEl = null; focusItem = null;
+  for (const p of [...editor.querySelectorAll(".pill")]) p.remove();
+  hidePillTools();
+  if (BUNDLED) frame.srcdoc = s.file;          // 1枚ものでは本文そのものが入っている
+  else frame.src = SERVED ? "/" + s.file : s.file;
+  $("counter").textContent = `${String(index + 1).padStart(2, "0")} / ${String(slides.length).padStart(2, "0")}`;
+  $("title").textContent = s.title;
+  $("progress").style.width = `${((index + 1) / slides.length) * 100}%`;
+  $("prev").disabled = index === 0;
+  $("next").disabled = index === slides.length - 1;
+  if (had) toast("スライドを移動したので指定を外しました");
+  syncRefs(); renderPane(); renderPins();
+}
+
+function go(d) {
+  const n = Math.min(Math.max(index + d, 0), slides.length - 1);
+  if (n !== index) { index = n; render(); }
+}
+
+/* ================================================================ iframe への接続 */
+
+frame.addEventListener("load", () => {
+  doc = null; ui = null;
+  let d = null;
+  try { d = frame.contentDocument; } catch { d = null; }
+  if (!d) {
+    // file:// と srcdoc では到達できないのが正常 (レビューは畳んである)。警告は http のときだけ。
+    if (SERVED) banner("iframe の中に到達できません。review_server.py の URL から開いてください。");
+    return;
+  }
+  banner("");
+  doc = d;
+  ui = injectUI(d);
+  d.addEventListener("mousemove", onMove, true);
+  d.addEventListener("mousedown", onDown, true);
+  d.addEventListener("mouseup", onUp, true);
+  d.addEventListener("click", onClick, true);
+  d.addEventListener("keydown", onKey, true);
+  // 領域ドラッグ中にブラウザ側のネイティブ操作 (テキスト選択・画像のD&D) が
+  // 始まると、以降のマウスイベントがそちらに吸われて矩形が取れなくなる。
+  d.addEventListener("dragstart", swallow, true);
+  d.addEventListener("selectstart", swallow, true);
+  applySelectable();
+  paint();
+});
+
+// スライド側の CSP は script-src 'none' のまま。ここは親のスクリプト文脈から
+// 子の DOM を触っているだけなので CSP の対象外。style も CSSOM 経由で当てる。
+function injectUI(d) {
+  const mk = (styles) => { const e = d.createElement("div"); Object.assign(e.style, styles); return e; };
+  const root = mk({ position: "fixed", left: "0", top: "0", right: "0", bottom: "0",
+                    pointerEvents: "none", zIndex: "2147483647",
+                    font: '13px/1.3 "SFMono-Regular", ui-monospace, monospace' });
+  root.setAttribute("data-review-ui", "");
+  // レビューを閉じている間はルートごと消す。描き漏らしがあっても道連れで消える。
+  root.style.display = review ? "block" : "none";
+  const box = mk({ position: "absolute", display: "none", border: "2px solid " + MARK.hover,
+                   background: "rgba(15,108,189,.08)", borderRadius: "2px" });
+  const label = mk({ position: "absolute", display: "none", background: MARK.hover, color: "#fff",
+                     padding: "3px 8px", borderRadius: "3px", whiteSpace: "nowrap", fontWeight: "700" });
+  const band = mk({ position: "absolute", display: "none", border: "2px dashed " + MARK.draft,
+                    background: "rgba(164,98,10,.12)" });
+  const marks = mk({ position: "absolute", left: "0", top: "0", right: "0", bottom: "0" });
+  root.append(box, label, band, marks);
+  d.body.appendChild(root);
+  return { root, box, label, band, marks };
+}
+
+// スライドは常に白なので、オーバーレイの色はテーマに追従させない。
+const MARK = { hover: "#0f6cbd", draft: "#a4620a",
+               open: "#a4620a", in_progress: "#a4620a", waiting_main: "#8764b8",
+               proposed: "#0f6cbd", changes_requested: "#c4314b", merged: "#0f7b3f",
+               deferred: "#0f6cbd", rejected: "#8a8886", closed: "#8a8886" };
+
+/* ================================================================ 要素の記述 */
+
+const pf = (v) => Math.round(parseFloat(v) || 0);
+const txtOf = (el) => (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 120);
+
+function selOf(el) {
+  const parts = [];
+  let cur = el;
+  for (let i = 0; cur && cur.nodeType === 1 && i < 4; i += 1) {
+    let s = cur.tagName.toLowerCase();
+    if (cur.id) { parts.unshift(s + "#" + cur.id); break; }
+    if (cur.classList.length) s += "." + [...cur.classList].slice(0, 2).join(".");
+    parts.unshift(s);
+    cur = cur.parentElement;
+  }
+  return parts.join(" > ");
+}
+
+// review_anchor.py と同じ規則。html を () として、各階層の childElementIndex を並べる。
+function pathOf(el) {
+  const p = [];
+  let cur = el;
+  while (cur && cur.parentElement) {
+    p.unshift([...cur.parentElement.children].indexOf(cur));
+    cur = cur.parentElement;
+  }
+  return p;
+}
+
+function bgOf(el) {
+  let cur = el;
+  while (cur && cur.nodeType === 1) {
+    const c = getComputedStyle(cur).backgroundColor;
+    if (c && !/rgba\(0, 0, 0, 0\)|transparent/.test(c)) return c;
+    cur = cur.parentElement;
+  }
+  return "rgb(255, 255, 255)";
+}
+
+const rnd = (r) => ({ x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) });
+
+function briefOf(el) {
+  return { path: pathOf(el), tag: el.tagName.toLowerCase(), id: el.id || null,
+           classes: [...el.classList], selector: selOf(el), text_excerpt: txtOf(el) };
+}
+
+function isUI(el) { return !!(el && el.closest && el.closest("[data-review-ui]")); }
+
+/** 矩形を含む最小の要素。領域指定を HTML のどこに挿すかの手がかり。 */
+function anchorOf(rect) {
+  let best = null, bestArea = Infinity;
+  for (const el of doc.body.querySelectorAll("*")) {
+    if (isUI(el)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.left <= rect.x && r.top <= rect.y && r.right >= rect.x + rect.w && r.bottom >= rect.y + rect.h) {
+      const a = r.width * r.height;
+      if (a > 0 && a < bestArea) { bestArea = a; best = el; }
+    }
+  }
+  const el = best || doc.body;
+  return { ...briefOf(el), relation: "contains" };
+}
+
+/** 領域の近くにある、文字を持つ末端要素。エージェントが位置関係を掴むため。 */
+function neighborsOf(rect) {
+  const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
+  const cand = [];
+  for (const el of doc.body.querySelectorAll("*")) {
+    if (isUI(el) || el.children.length) continue;
+    const t = txtOf(el);
+    if (!t || t.length > 80) continue;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    const d = Math.hypot(r.left + r.width / 2 - cx, r.top + r.height / 2 - cy);
+    cand.push({ d, v: { ...briefOf(el), rect: rnd(r) } });
+  }
+  return cand.sort((a, b) => a.d - b.d).slice(0, 3).map((c) => c.v);
+}
+
+function serialize(ref, n) {
+  if (ref.kind === "region") {
+    return { n, kind: "region", rect: ref.rect, anchor: anchorOf(ref.rect), neighbors: neighborsOf(ref.rect) };
+  }
+  const el = ref.el, cs = getComputedStyle(el);
+  return {
+    n, kind: "element", ...briefOf(el),
+    outer_head: (el.outerHTML || "").slice(0, 180),
+    rect: rnd(el.getBoundingClientRect()),
+    computed: { font_size_px: pf(cs.fontSize), font_weight: cs.fontWeight, color: cs.color, background: bgOf(el) },
+  };
+}
+
+/* ================================================================ 描画 */
+
+function drawHover(el) {
+  if (!ui) return;
+  const r = el.getBoundingClientRect();
+  Object.assign(ui.box.style, { display: "block", left: r.left + "px", top: r.top + "px",
+                                width: r.width + "px", height: r.height + "px" });
+  ui.label.textContent = `${selOf(el)}  ${pf(getComputedStyle(el).fontSize)}px`;
+  Object.assign(ui.label.style, { display: "block", left: Math.max(r.left, 4) + "px",
+                                  top: (r.top > 30 ? r.top - 26 : r.bottom + 4) + "px" });
+}
+function hideHover() { if (ui) { ui.box.style.display = "none"; ui.label.style.display = "none"; } }
+function hideBand() { if (ui) ui.band.style.display = "none"; }
+
+function paint() {
+  if (!ui) return;
+  ui.marks.textContent = "";
+  // レビューを閉じているときはキャンバスに1本も描かない。スライドとして見せる面なので、
+  // 選択の枠もピンも残さない。情報は .loop/feedback/ の JSONL 側にある。
+  if (!review) return;
+  const mk = (r, color, text, solid) => {
+    const b = doc.createElement("div");
+    Object.assign(b.style, { position: "absolute", left: r.x + "px", top: r.y + "px",
+      width: r.w + "px", height: r.h + "px",
+      border: `${solid ? 3 : 2}px ${solid ? "solid" : "dashed"} ${color}`,
+      background: solid ? "rgba(164,98,10,.10)" : "transparent", borderRadius: "2px" });
+    const tag = doc.createElement("div");
+    tag.textContent = text;
+    Object.assign(tag.style, { position: "absolute", left: "-2px", top: "-25px", background: color,
+      color: "#fff", fontWeight: "700", padding: "3px 8px", borderRadius: "3px", whiteSpace: "nowrap" });
+    b.appendChild(tag);
+    ui.marks.appendChild(b);
+  };
+
+  // 送信済みの指摘 (このスライド分)
+  if (showPins) for (const it of items) {
+    if (it.slide?.id !== slides[index].id) continue;
+    for (const ref of it.refs || []) {
+      if (!ref.rect) continue;
+      mk(ref.rect, MARK[it.status] || MARK.rejected,
+         `${it.id}${it.refs.length > 1 ? " #" + ref.n : ""}`, focusItem === it.id);
+    }
+  }
+  // 下書き中の指定 (本文のピルと同じ番号)。P でピンを落としてもこれは残す。
+  for (const ref of orderedRefs()) {
+    const r = ref.kind === "region" ? ref.rect : rnd(ref.el.getBoundingClientRect());
+    mk(r, MARK.draft, `#${refNums.get(ref.key)}`, true);
+  }
+}
+
+/* ================================================================ スライド側の入力 */
+
+function onMove(e) {
+  if (!review) return;
+  if (dragFrom) {
+    if (Math.abs(e.clientX - dragFrom.x) > 8 || Math.abs(e.clientY - dragFrom.y) > 8) {
+      dragging = true; hideHover();
+      const r = rectBetween(dragFrom, { x: e.clientX, y: e.clientY });
+      Object.assign(ui.band.style, { display: "block", left: r.x + "px", top: r.y + "px",
+                                     width: r.w + "px", height: r.h + "px" });
+    }
+    return;
+  }
+  const el = e.target;
+  if (!el || el.nodeType !== 1 || isUI(el) || el === hoverEl) return;
+  hoverEl = el; drawHover(el);
+}
+
+const rectBetween = (a, b) => ({ x: Math.round(Math.min(a.x, b.x)), y: Math.round(Math.min(a.y, b.y)),
+                                 w: Math.round(Math.abs(a.x - b.x)), h: Math.round(Math.abs(a.y - b.y)) });
+
+function onDown(e) { if (!review) return; e.preventDefault(); dragFrom = { x: e.clientX, y: e.clientY }; }
+
+function onUp(e) {
+  if (!review) return;
+  const was = dragging;
+  const from = dragFrom;
+  dragFrom = null; dragging = false; hideBand();
+  if (was && from) {
+    justDragged = true;
+    const r = rectBetween(from, { x: e.clientX, y: e.clientY });
+    if (r.w > 12 && r.h > 12) addRef({ kind: "region", rect: r });
+  }
+}
+
+function onClick(e) {
+  if (!review) return;
+  e.preventDefault(); e.stopPropagation();
+  if (justDragged) { justDragged = false; return; }
+  const el = e.target;
+  if (!el || el.nodeType !== 1 || isUI(el) || el === doc.documentElement) return;
+  const hit = refByEl(el);
+  if (hit) dropRef(hit.key);          // もう一度クリック = 解除
+  else addRef({ kind: "element", el });
+}
+
+function onKey(e) { handleKey(e); }
+
+function shellQuote(s) { return "'" + s.replace(/'/g, "'\\''") + "'"; }
+function reviewPrompt() {
+  const path = decodeURIComponent(location.pathname || "").replace(/[\\/]([^\\/]*)$/, "") || ".";
+  const command = `python3 skills/html-deck/scripts/review_server.py ${shellQuote(path)}`;
+  return [
+    "このデッキのDOMレビューとPDF/PPTX/1枚HTMLの書き出しを有効にしてください。",
+    "html-deckリポジトリのルートで、次のコマンドを実行してください。",
+    command,
+    "表示された review URL をブラウザで開いてください。",
+  ].join("\n");
+}
+function showReviewServerPrompt() {
+  if (SERVED) return;
+  exportMenu.open = false;
+  $("serverPromptText").value = reviewPrompt();
+  $("serverPromptStatus").textContent = "";
+  $("serverPrompt").dataset.show = "true";
+  $("serverPromptCopy").focus();
+}
+function closeReviewServerPrompt() {
+  $("serverPrompt").dataset.show = "false";
+  $("modeBtn").focus();
+}
+async function copyReviewPrompt() {
+  const text = $("serverPromptText").value;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const area = $("serverPromptText");
+    area.focus(); area.select(); document.execCommand("copy");
+  }
+  $("serverPromptStatus").textContent = "コピーしました";
+}
+
+function handleKey(e) {
+  if (e.key === "Escape" && $("serverPrompt").dataset.show === "true") {
+    e.preventDefault(); closeReviewServerPrompt(); return;
+  }
+  const t = e.target;
+  const typing = !!(t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable));
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); send(); return; }
+  if (typing) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === "e" || e.key === "E") {
+    e.preventDefault();
+    if (SERVED) setReview(!review); else showReviewServerPrompt();
+    return;
+  }
+  if (e.key === "t" || e.key === "T") { e.preventDefault(); setTheme(currentTheme() === "dark" ? "light" : "dark"); return; }
+  // レビュー中に素のレイアウトを確かめたいことがある。ピンだけ落とす。
+  if (e.key === "p" || e.key === "P") { e.preventDefault(); togglePins(); return; }
+  if (e.key === "Escape") {
+    if (openId && !refStore.size) { closeThread(); return; }
+    clearRefs(); hidePillTools(); return;
+  }
+  if (["ArrowRight", "PageDown", " "].includes(e.key)) { e.preventDefault(); go(1); }
+  if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); go(-1); }
+}
+
+function swallow(e) { if (review) { e.preventDefault(); e.stopPropagation(); } }
+
+function applySelectable() {
+  if (!doc || !doc.body) return;
+  doc.body.style.userSelect = review ? "none" : "";
+  doc.body.style.webkitUserSelect = review ? "none" : "";
+}
+
+function setReview(on) {
+  review = on;
+  document.body.dataset.review = String(on);
+  $("modeBtn").setAttribute("aria-pressed", String(on));
+  $("modeLabel").textContent = on ? "レビュー中" : "レビュー";
+  frameShell.dataset.review = String(on);
+  if (!on) { hideHover(); hideBand(); hidePillTools(); showPins = true; }
+  if (ui) ui.root.style.display = on ? "block" : "none";
+  applySelectable();
+  fitDeck();
+  paint();
+  if (slides.length) renderPins();
+  if (on) editor.focus();
+}
+
+/* ================================================================ ペイン */
+
+const STATUS_JA = {
+  open: "未着手", in_progress: "作業中", waiting_main: "テーマ判断待ち", proposed: "確認待ち",
+  changes_requested: "差し戻し", merged: "マージ済み", deferred: "保留", rejected: "却下",
+  closed: "取り下げ",
+};
+const TERMINAL = ["merged", "closed", "rejected"];
+
+function renderPane() {
+  document.body.dataset.pane = openId ? "thread" : "list";
+  if (openId) { renderLog(); renderActions(); markSeen(openId); }
+  else { renderThread(); }
+  syncComposer();
+}
+
+function openThread(id) {
+  openId = id;
+  focusItem = id;
+  // 返信にも #N を足せる。指定が別の枚に着くと意味が壊れるので、その枚へ移動する。
+  const th = logOf(id)[0];
+  const sid = th?.slide?.id;
+  const at = slides.findIndex((s) => s.id === sid);
+  if (at >= 0 && at !== index) { index = at; render(); }
+  renderPane(); paint();
+  editor.focus();
+}
+
+function closeThread() {
+  openId = null; focusItem = null;
+  clearRefs();
+  renderPane(); paint();
+}
+
+function fmtWhen(at) { return (at || "").slice(5, 16).replace("T", " "); }
+
+function renderLog() {
+  const box = $("log");
+  const l = logOf(openId);
+  const head = l[0] || {};
+  $("paneTitle").textContent = openId;
+  $("paneCount").textContent = head.slide?.id ? `${head.slide.id} / ${l.length}件` : "";
+  const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  box.textContent = "";
+
+  for (const ev of l) {
+    const m = document.createElement("div");
+    m.className = "msg";
+    m.dataset.role = ev.role; m.dataset.kind = ev.kind || "comment";
+
+    const h = document.createElement("div"); h.className = "msg-head";
+    const who = document.createElement("span"); who.className = "who";
+    who.textContent = ev.role === "user" ? "あなた" : (ev.actor === "main" ? "メイン" : "エージェント");
+    h.appendChild(who);
+    if (ev.state) {
+      const b = document.createElement("span");
+      b.className = "badge"; b.dataset.s = ev.state; b.textContent = STATUS_JA[ev.state] || ev.state;
+      h.appendChild(b);
+    }
+    if (ev.kind === "note") {
+      const tag = document.createElement("span");
+      tag.className = "tag"; tag.textContent = "確認のお願い";
+      h.appendChild(tag);
+    }
+    const w = document.createElement("span"); w.className = "when"; w.textContent = fmtWhen(ev.at);
+    h.appendChild(w);
+
+    const p = document.createElement("p"); p.className = "msg-body"; p.textContent = ev.text || "";
+    m.append(h, p);
+
+    if ((ev.refs || []).length) {
+      const ul = document.createElement("ul"); ul.className = "changes";
+      for (const ref of ev.refs) {
+        const li = document.createElement("li");
+        const a = ref.anchor || {};
+        const where = ref.file_line || a.file_line;
+        li.textContent = `#${ref.n} ${ref.selector || "領域 → " + (a.selector || a.tag || "?")}`
+          + (where ? ":" + where : "");
+        ul.appendChild(li);
+      }
+      m.appendChild(ul);
+    }
+    if ((ev.changes || []).length) {
+      const ul = document.createElement("ul"); ul.className = "changes";
+      for (const c of ev.changes) {
+        const li = document.createElement("li");
+        li.textContent = `${c.file}:${c.line}${c.note ? "  " + c.note : ""}`;
+        ul.appendChild(li);
+      }
+      m.appendChild(ul);
+    }
+    if (ev.escalation) {
+      const e = document.createElement("div"); e.className = "esc";
+      e.textContent = `テーマ判断を依頼 (${ev.escalation.key})`
+        + (ev.escalation.local ? ` / 枚内の案: ${ev.escalation.local}` : "");
+      m.appendChild(e);
+    }
+    if (ev.check) {
+      const c = ev.check, d = c.delta || {};
+      const dd = (k) => (d[k] ? ` (${d[k] > 0 ? "+" : ""}${d[k]})` : "");
+      const chip = document.createElement("div");
+      chip.className = "chk"; chip.dataset.block = String(!!c.block);
+      chip.textContent = `block ${c.block}${dd("block")} / review ${c.review}${dd("review")}`;
+      const lv = document.createElement("span"); lv.className = "lv";
+      lv.textContent = c.level ? "· " + c.level : "";
+      chip.appendChild(lv);
+      m.appendChild(chip);
+    }
+    if (ev.check_skipped) {
+      const e = document.createElement("div"); e.className = "esc";
+      e.textContent = "検査を回せなかった: " + ev.check_skipped;
+      m.appendChild(e);
+    }
+    box.appendChild(m);
+  }
+  // 読んでいる最中に飛ばさない。末尾に居るときだけ追う。
+  if (stick) box.scrollTop = box.scrollHeight;
+}
+
+function renderActions() {
+  const box = $("actions");
+  const st = stateOf(openId);
+  box.textContent = "";
+
+  const note = document.createElement("div"); note.className = "note";
+  const mk = (label, kind, fn, disabled) => {
+    const b = document.createElement("button");
+    b.className = "abtn"; b.type = "button"; b.textContent = label;
+    if (kind) b.dataset.kind = kind;
+    b.disabled = !!disabled; b.onclick = fn;
+    return b;
+  };
+
+  if (st === "merged") {
+    const l = logOf(openId);
+    const after = l.filter((e) => e.kind === "note").length;
+    note.textContent = after
+      ? "マージ後にデッキ側が変わっています。見え方を確認して、違っていたら新しく起票してください。"
+      : "マージ済み。deck.md の ## accepted に積みました。";
+    box.append(note); return;
+  }
+  if (st === "closed" || st === "rejected") {
+    note.textContent = STATUS_JA[st] + "。返信するとまた動きます。";
+    box.append(note); return;
+  }
+
+  const wrap = document.createElement("div"); wrap.className = "mergebox"; wrap.id = "mergebox";
+  const input = document.createElement("input");
+  input.placeholder = "確定した意図を1行で (例: 数値には出典を隣接させる)";
+  const row = document.createElement("div"); row.className = "row";
+  const ok = mk("マージする", "merge", () => doMerge(input.value));
+  const cancel = mk("やめる", "", () => { wrap.dataset.show = "false"; });
+  row.append(ok, cancel);
+  const hint = document.createElement("p");
+  hint.textContent = "この1行が deck.md の ## accepted と merged.jsonl に入り、"
+    + "次のラウンドの批評担当に渡ります。マージ前にこの枚を full で検査します。";
+  wrap.append(input, row, hint);
+
+  if (st === "proposed") {
+    note.textContent = "直したものを確認してください。違うと思ったら下に返信すると差し戻しになります。";
+    box.append(note, mk("↩ 差し戻す", "", () => { editor.focus(); }),
+               mk("✔ 承認してマージ", "merge", () => {
+                 wrap.dataset.show = "true"; input.focus();
+               }), wrap);
+  } else {
+    note.textContent = st === "waiting_main"
+      ? "テーマに関わる指摘なので、メインの判断を待っています。"
+      : "エージェントが直したら、ここに説明が届きます。";
+    box.append(note, mk("取り下げる", "", doClose), wrap);
+  }
+}
+
+async function doMerge(intent) {
+  if (!(intent || "").trim()) { toast("確定した意図を1行書いてください", "warn"); return; }
+  toast("マージ前の検査中…");
+  try {
+    const res = await api("/__review/api/state", {
+      method: "POST", body: JSON.stringify({ id: openId, state: "merged", intent }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.status);
+    await pollThreads(true);
+    toast(`${openId} をマージしました`);
+  } catch (err) {
+    toast("マージできません: " + err.message, "warn");
+  }
+}
+
+async function doClose() {
+  try {
+    const res = await api("/__review/api/state", {
+      method: "POST", body: JSON.stringify({ id: openId, state: "closed" }),
+    });
+    if (!res.ok) throw new Error((await res.json()).error || res.status);
+    await pollThreads(true);
+    toast(`${openId} を取り下げました`);
+  } catch (err) { toast("失敗: " + err.message, "warn"); }
+}
+
+/** 宛先に合わせてコンポーザの見た目を変える。送り先は send() が決める。 */
+function syncComposer() {
+  const to = openId;
+  editor.dataset.placeholder = to
+    ? `${to} への返信。スライドをクリックすると #N を足せる。`
+    : "スライドの要素をクリックすると #1 が入る。#1 を主語にして書く。";
+  $("send").textContent = "";
+  $("send").append(document.createTextNode(to ? "返信" : "送信"));
+  const k = document.createElement("span"); k.className = "kbd"; k.textContent = "⌘⏎";
+  $("send").appendChild(k);
+  $("hint").textContent = to
+    ? "この指摘についてだけ話す。別の場所は一覧に戻って新しく起票する。"
+    : "要素をクリックすると本文に #1 が入る。";
+  updateEmpty();
+}
+
+function renderThread() {
+  $("paneTitle").textContent = "レビュー";
+  const mine = items.filter((i) => i.slide?.id === slides[index]?.id);
+  const box = $("thread");
+  box.textContent = "";
+  $("paneCount").textContent = mine.length ? `この枚 ${mine.length}件` : "";
+  if (!mine.length) {
+    const e = document.createElement("div");
+    e.className = "none";
+    e.textContent = "この枚への指摘はまだありません。";
+    box.appendChild(e);
+    return;
+  }
+  for (const it of mine) {
+    const card = document.createElement("div");
+    card.className = "item";
+    card.dataset.focus = String(focusItem === it.id);
+
+    const head = document.createElement("div"); head.className = "item-head";
+    const id = document.createElement("span"); id.className = "id"; id.textContent = it.id;
+    const badge = document.createElement("span");
+    badge.className = "badge"; badge.dataset.s = it.status;
+    badge.textContent = STATUS_JA[it.status] || it.status;
+    const refs = document.createElement("span");
+    refs.className = "refs"; refs.textContent = `${(it.refs || []).length}箇所`;
+    head.append(id, badge, refs);
+
+    const p = document.createElement("p");
+    p.textContent = it.instruction;
+    card.append(head, p);
+
+    const last = logOf(it.id).slice(-1)[0];
+    if (last && last.role === "ai" && last.text) {
+      const why = document.createElement("div");
+      why.className = "why"; why.textContent = last.text;
+      card.appendChild(why);
+    }
+    const un = unreadOf(it.id);
+    if (un) {
+      const d = document.createElement("span"); d.className = "dot";
+      d.title = `未読 ${un}件`;
+      head.insertBefore(d, badge);
+    }
+    card.onclick = () => openThread(it.id);
+    box.appendChild(card);
+  }
+}
+
+async function send() {
+  if (openId) return sendReply();
+  const instruction = readEditor();
+  const refs = orderedRefs();
+  if (!refs.length) { toast("スライド上の要素をクリックして指定してください", "warn"); return; }
+  if (!instruction.replace(/#\d+/g, "").trim()) {
+    toast("#N を主語にして、何をどう直すかを書いてください", "warn"); editor.focus(); return;
+  }
+  const dangling = [...instruction.matchAll(/#(\d{1,2})/g)]
+    .map((m) => parseInt(m[1], 10)).filter((n) => n > refs.length);
+  if (dangling.length) {
+    toast(`#${dangling[0]} に対応する指定がありません。#1〜#${refs.length} だけ使えます`, "warn");
+    return;
+  }
+  const s = slides[index];
+  const payload = { slide_id: s.id, slide_file: s.file, slide_title: s.title,
+                    instruction, refs: refs.map((r, i) => serialize(r, i + 1)) };
+  $("send").disabled = true;
+  try {
+    const res = await api("/__review/api/feedback", { method: "POST", body: JSON.stringify(payload) });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.status);
+    editor.textContent = "";
+    refStore.clear(); refNums = new Map(); hidePillTools();
+    await pollThreads(true);
+    syncRefs(); renderPane(); paint();
+    toast(`${body.item.id} を送信しました`);
+  } catch (err) {
+    toast("送信に失敗: " + err.message, "warn");
+  } finally {
+    $("send").disabled = refStore.size === 0;
+  }
+}
+
+/** スレッドへの返信。指定は無くてよい (「そこじゃない」と言うだけのことが多い)。 */
+async function sendReply() {
+  const text = readEditor();
+  const refs = orderedRefs();
+  if (!text.replace(/#\d+/g, "").trim()) { toast("返信の本文を書いてください", "warn"); return; }
+  $("send").disabled = true;
+  try {
+    const res = await api("/__review/api/reply", {
+      method: "POST",
+      body: JSON.stringify({ id: openId, text, refs: refs.map((r, i) => serialize(r, i + 1)) }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.status);
+    editor.textContent = "";
+    refStore.clear(); refNums = new Map(); hidePillTools();
+    await pollThreads(true);
+    syncRefs();
+    toast(body.event.state === "changes_requested" ? "差し戻しました" : "返信しました");
+  } catch (err) {
+    toast("返信に失敗: " + err.message, "warn");
+  } finally {
+    $("send").disabled = false;
+  }
+}
+
+/* ================================================================ 配線 */
+
+editor.addEventListener("input", syncRefs);
+editor.addEventListener("blur", saveRange);
+editor.addEventListener("copy", onCopy);
+editor.addEventListener("cut", onCopy);
+editor.addEventListener("paste", onPaste);
+document.addEventListener("selectionchange", () => {
+  if (document.activeElement === editor) saveRange();
+});
+
+editor.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") return;   // handleKey が拾う
+  if (e.key === "Escape") { e.stopPropagation(); editor.blur(); return; }
+  if (e.key === "Backspace" || e.key === "Delete") {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount) {
+      // 1文字として消す。同じ参照の別のピルは残す (最後の1つが消えた時点で
+      // syncRefs が参照ごと落とす)。
+      const pill = pillAt(sel.getRangeAt(0), e.key === "Backspace" ? -1 : 1);
+      if (pill) {
+        e.preventDefault();
+        const nx = pill.nextSibling;
+        if (nx && nx.nodeType === 3 && /^ /.test(nx.textContent)) nx.textContent = nx.textContent.slice(1);
+        pill.remove();
+        hidePillTools();
+        syncRefs();
+        return;
+      }
+    }
+  }
+  // 打った「#2」をブロックに変える。変換後、既定の空白/改行がそのまま後ろに入る。
+  if (e.key === " " || e.key === "Enter") linkifyBeforeCaret();
+});
+
+editor.addEventListener("click", (e) => {
+  const pill = e.target.closest?.(".pill");
+  if (pill) { e.preventDefault(); showPillTools(pill); } else hidePillTools();
+});
+editor.addEventListener("mouseover", (e) => {
+  const pill = e.target.closest?.(".pill");
+  const ref = pill && refStore.get(pill.dataset.key);
+  if (ref && ref.kind === "element" && doc) drawHover(ref.el);
+});
+editor.addEventListener("mouseout", (e) => {
+  if (e.target.closest?.(".pill")) hideHover();
+});
+editor.addEventListener("scroll", hidePillTools);
+
+$("ptUp").onclick = () => {
+  const ref = activePill && refStore.get(activePill.dataset.key);
+  if (!ref || ref.kind !== "element") return;
+  const parent = ref.el.parentElement;
+  if (!parent || parent === doc.documentElement || isUI(parent)) { toast("これ以上広げられません"); return; }
+  ref.el = parent;
+  syncRefs();
+  showPillTools(activePill);
+};
+$("ptDel").onclick = () => { if (activePill) dropRef(activePill.dataset.key); };
+document.addEventListener("mousedown", (e) => {
+  const t = e.target;
+  if (!t.closest?.(".pilltools") && !t.closest?.(".pill")) hidePillTools();
+});
+
+$("prev").onclick = () => go(-1);
+$("next").onclick = () => go(1);
+$("send").onclick = send;
+$("paneBack").onclick = closeThread;
+$("pins").onclick = togglePins;
+$("modeBtn").onclick = () => SERVED ? setReview(!review) : showReviewServerPrompt();
+$("serverPromptClose").onclick = closeReviewServerPrompt;
+$("serverPromptBackdrop").onclick = closeReviewServerPrompt;
+$("serverPromptCopy").onclick = copyReviewPrompt;
+$("paneClose").onclick = () => setReview(false);
+document.querySelectorAll("[data-export-kind]").forEach((btn) => {
+  btn.onclick = () => SERVED ? exportAs(btn.dataset.exportKind, btn) : showReviewServerPrompt();
+});
+$("themeBtn").onclick = () => setTheme(currentTheme() === "dark" ? "light" : "dark");
+$("fullscreen").onclick = async () => {
+  if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
+  else await document.exitFullscreen();
+};
+document.addEventListener("keydown", handleKey);
+new ResizeObserver(fitDeck).observe(stage);
+window.addEventListener("resize", () => { fitDeck(); hidePillTools(); });
+document.addEventListener("fullscreenchange", fitDeck);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (!document.documentElement.dataset.theme) paintThemeBtn();
+});
+fitDeck();
+boot();
+</script>
+</body>
+</html>

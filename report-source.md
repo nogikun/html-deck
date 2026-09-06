@@ -29,7 +29,7 @@
 
 ## 実装した変換層
 
-`skills/html-deck/scripts/export_pptx.py` を追加した。既存のhtml-deckと同じChrome/Playwrightの固定1600×900px環境で各HTMLを開き、計算済みCSS、`getBoundingClientRect()`、文字ごとの `Range.getClientRects()` からDeckIRを生成する。DeckIRは `TextLine / Shape / Line / SVG / Image` の最小集合を持ち、`skills/html-deck/scripts/emit_pptx.mjs` がPptxGenJSの `addText` / `addShape` / `addImage` へ変換する。
+`skills/html-deck/scripts/export_pptx.py` を追加した。既存のhtml-deckと同じChrome/Playwrightの固定1600×900px環境で各HTMLを開き、計算済みCSS、`getBoundingClientRect()`、文字ごとの `Range.getClientRects()` からDeckIRを生成する。DeckIRは `TextLine / Shape / Line / Table / SVG / Image` の最小集合を持ち、`skills/html-deck/scripts/emit_pptx.mjs` がPptxGenJSの `addText` / `addShape` / `addTable` / `addImage` へ変換する。
 
 CSSレイアウトをPptxGenJSで再実装せず、Chromeで解決済みの矩形を次の変換でインチへ落とす。
 
@@ -49,6 +49,12 @@ CSSレイアウトをPptxGenJSで再実装せず、Chromeで解決済みの矩�
 - 既存 `check_deck.py --no-shots`: `block 0`
 
 未確認なのはPowerPoint/Keynoteで開いた際の最終的な見た目だけである。LibreOfficeは未導入のため再レンダリング検査はできない。PptxGenJS側の構造生成、行単位のテキストrun、背景・境界線、SVGのCSS変数解決、既存HTMLの品質検査は確認済み。
+
+### 表の変換
+
+HTMLの `<table>` は、図形や個別テキストへ分解せず、PptxGenJSの `addTable()` へ渡す。ブラウザで測った列幅・行高を `colW` / `rowH` として固定し、各セルの文字、書体、色、塗り、罫線、`rowspan`、`colspan` をセルオプションへ写像する。これにより、PowerPoint XML内に `<a:tbl>` が生成され、セル内容をPowerPoint上で編集できる。
+
+一時表で、3行4列、`rowspan` 1箇所、`colspan` 1箇所、セル書式を検証した。検証結果は `<a:tbl>`、`<a:gridCol>`、`<a:tc>`、各セルの `<a:t>` として出力され、OOXML ZIP検証にも成功した。既存の16枚デッキには `<table>` がないため、そのデッキの表件数は0である。今回のGPT-5.6比較デッキでは、実表を1件含むことも確認した。
 
 実験生成物（暫定）:
 

@@ -123,7 +123,7 @@ G=40 / connector=64 / align=center / intent=separation
 
 ## 8. 決定的ゲートと人の判断
 
-`check_deck.py` は次を機械的に止める。
+`html-deck-check` は次を機械的に止める。
 
 | コード | 数値 | 直す対象 |
 | --- | ---: | --- |

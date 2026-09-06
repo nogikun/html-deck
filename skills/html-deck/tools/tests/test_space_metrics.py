@@ -8,9 +8,9 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
 
-from check_deck import evaluate, _layout_geometry, _space_metrics, _union_area  # noqa: E402
+from html_deck.check_deck import (  # noqa: E402
+    DEFAULT_GATES, evaluate, _layout_geometry, _space_metrics, _union_area)
 
 
 LAYOUT_GATES = {
@@ -123,7 +123,7 @@ def main() -> int:
     )
     assert len(duplicate_gap["redundant_gaps"]) == 1
 
-    gates = json.loads((HERE.parent / "assets" / "gates.json").read_text(encoding="utf-8"))
+    gates = json.loads(DEFAULT_GATES.read_text(encoding="utf-8"))
     report = evaluate(
         {
             "title": "fixture", "headings": [{"tag": "h2", "text": "fixture"}],

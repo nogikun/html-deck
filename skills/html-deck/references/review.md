@@ -11,11 +11,11 @@
 `Bash` を `run_in_background: true` で**2本**起動する。
 
 ```bash
-python3 <skill>/scripts/review_server.py <deck-dir> --open
+uvx --from <このスキルのディレクトリ>/tools html-deck-review <deck-dir> --open
 ```
 
 ```bash
-python3 <skill>/scripts/review_wait.py <deck-dir> --timeout 1800
+uvx --from <このスキルのディレクトリ>/tools html-deck-wait <deck-dir> --timeout 1800
 ```
 
 ユーザーは `E` でレビューモードに入り、要素をクリックする。クリックした要素が
@@ -43,10 +43,10 @@ python3 <skill>/scripts/review_wait.py <deck-dir> --timeout 1800
 
 ## どうやって気づくか
 
-**`review_wait.py` の終了が「ユーザーが何か言った」の合図。**
+**`html-deck-wait` の終了が「ユーザーが何か言った」の合図。**
 
 拾うのは**エージェントがまだ返していないユーザー発言**すべて — 新規の起票 / 返信 /
-差し戻し / マージ / 取り下げ。返事 (`review_thread.py post`) を書いた時点で読んだ扱いになる。
+差し戻し / マージ / 取り下げ。返事 (`html-deck-thread post`) を書いた時点で読んだ扱いになる。
 
 - 起動時にすでに未読があれば、待たずに即返る
 - タイムアウトしても異常終了しない (`"timeout": true` を返すだけ)
@@ -66,11 +66,11 @@ python3 <skill>/scripts/review_wait.py <deck-dir> --timeout 1800
 | 話す相手 | ユーザーへの報告、サブへの指示 | スレッド上でユーザーと直接 |
 
 **1スレッド = 1サブエージェント。** 指示は `agents/deck-fixer.md` を読ませ、
-`review_thread.py context <id>` の出力を渡す。それで自己完結する。
+`html-deck-thread context <id>` の出力を渡す。それで自己完結する。
 
 ```bash
-python3 <skill>/scripts/review_thread.py <deck> list          # いまの状態
-python3 <skill>/scripts/review_thread.py <deck> context fb-003 # サブに渡す束
+uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> list          # いまの状態
+uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> context fb-003 # サブに渡す束
 ```
 
 **スレッドをまたいで文脈を運ばない。** 指摘1と指摘2に共通の文脈は無い。
@@ -114,10 +114,10 @@ python3 <skill>/scripts/review_thread.py <deck> context fb-003 # サブに渡す
 
 | 契機 | 実行 | 出るもの |
 | --- | --- | --- |
-| スレッド内の1回の修正 | `review_check.py <deck> --thread fb-003 --level brief` | 3行 (`block 0 / review 1 (+1)` + 上位3件) |
+| スレッド内の1回の修正 | `html-deck-recheck <deck> --thread fb-003 --level brief` | 3行 (`block 0 / review 1 (+1)` + 上位3件) |
 | **マージ** | サーバが自動で `--level full` を回す | その枚の finding 全件 |
-| `theme.css` を触った後 | `review_check.py <deck> --level deck` | 全枚 |
-| ラウンドの終わり | `check_deck.py`(従来どおり) | 全枚 |
+| `theme.css` を触った後 | `html-deck-recheck <deck> --level deck` | 全枚 |
+| ラウンドの終わり | `html-deck-check`(従来どおり) | 全枚 |
 
 結果は `.loop/feedback/checks/<id>.json` に残り、`post` が自動でスレッドに添付する。
 ユーザーはそれをチップとして読む。**`block > 0` のままではマージできない** (サーバが 409)。
@@ -125,7 +125,7 @@ python3 <skill>/scripts/review_thread.py <deck> context fb-003 # サブに渡す
 ## 返し方
 
 ```bash
-python3 <skill>/scripts/review_thread.py <deck> post fb-003 --state proposed \
+uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> post fb-003 --state proposed \
   --text "5行目の「3ヶ月」を「6ヶ月」に直し、出典を数字の直後に置いた。" \
   --change "slides/03-evidence.html:5 3ヶ月 → 6ヶ月"
 ```
@@ -138,7 +138,7 @@ python3 <skill>/scripts/review_thread.py <deck> post fb-003 --state proposed \
 サブは `theme.css` を書けない。書きたくなったら `escalate` する。
 
 ```bash
-python3 <skill>/scripts/review_thread.py <deck> escalations   # 台帳を見る
+uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> escalations   # 台帳を見る
 ```
 
 | 台帳の状態 | 返答 | 行動 |
@@ -148,15 +148,15 @@ python3 <skill>/scripts/review_thread.py <deck> escalations   # 台帳を見る
 | `other` | 集約しない | 個別に判断 |
 
 ```bash
-python3 <skill>/scripts/review_thread.py <deck> decide --key body_font_small \
+uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> decide --key body_font_small \
   --status applied_by_main --note "2枚で同じ指摘なので theme.css の本文を22→24pxにした"
 ```
 
 **`theme.css` を触ったら、その後に必ず2つやる。**
 
 ```bash
-python3 <skill>/scripts/review_check.py <deck> --level deck      # 全枚を検査する
-python3 <skill>/scripts/review_thread.py <deck> notify \
+uvx --from <このスキルのディレクトリ>/tools html-deck-recheck <deck> --level deck      # 全枚を検査する
+uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> notify \
   --text "theme の本文を22→24pxにした。確定済みのこの枚も字が大きくなっている。"
 ```
 
@@ -182,8 +182,8 @@ python3 <skill>/scripts/review_thread.py <deck> notify \
 新しいレビューを始めるときや批評サブエージェントを起動するときは、後者を渡す。
 
 ```bash
-python3 <skill>/scripts/review_thread.py <deck> brief                    # 全枚
-python3 <skill>/scripts/review_thread.py <deck> brief --slide 03-evidence
+uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> brief                    # 全枚
+uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> brief --slide 03-evidence
 ```
 
 **批評サブエージェントを起動するときは、この出力を `user_intents` として必ず渡す。**
@@ -208,7 +208,7 @@ python3 <skill>/scripts/review_thread.py <deck> brief --slide 03-evidence
 ## 制約
 
 - **`file://` では動かない。** 親ページから iframe 内の DOM に到達できないため
-  (Chrome で実測。`sandbox` 属性を外しても不可)。必ず `review_server.py` の URL から開く
+  (Chrome で実測。`sandbox` 属性を外しても不可)。必ず `html-deck-review` の URL から開く
 - サーバは `127.0.0.1` のみ、ポートはランダム、POST はトークン必須。共有リンクにはならない
 - スライド側の HTML と CSP は**一切変更しない**。ピッカーは親側で動き、
   オーバーレイは表示中の DOM に注入するだけなので、保存されるファイルには残らない

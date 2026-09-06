@@ -1,11 +1,7 @@
-#!/usr/bin/env -S uv run --quiet --script
-# /// script
-# requires-python = ">=3.10"
-# dependencies = ["playwright>=1.44", "pypdf>=4.2"]
-# ///
+#!/usr/bin/env python3
 """全スライドを 1600x900 のまま1本のPDFにまとめる。
 
-    uv run scripts/export_pdf.py <deck-dir> [-o deck.pdf] [--allow-font-fallback]
+    uvx --from <このスキルのディレクトリ>/tools html-deck-pdf <deck-dir> [-o deck.pdf] [--allow-font-fallback]
 
 固定PDFは「渡した先で見た目が動かない」納品形式。Chrome は描画に使った face を
 PDF に埋め込むので、**このマシンで描けた通り**が固定される。
@@ -23,6 +19,7 @@ import io
 import re
 import sys
 from pathlib import Path
+
 
 FACE_RE = re.compile(r"--(display|body|mono)\s*:\s*([^;}]+)")
 

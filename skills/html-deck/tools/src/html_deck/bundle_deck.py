@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """デッキ一式を1枚のHTMLに畳む。渡すときはこれ1つで済む。
 
-    python3 scripts/bundle_deck.py <deck-dir> [-o deck.html]
+    uvx --from <このスキルのディレクトリ>/tools html-deck-bundle <deck-dir> [-o deck.html]
 
 やること:
   1. slides/*.html を1枚ずつ読み、<link href="theme.css"> をその中身に差し替える
@@ -13,7 +13,7 @@
 iframe のまま src を srcdoc に変えれば、分離は今と1ミリも変わらず、
 check_deck.py が実測した値がそのまま生きる。
 
-フォントは埋め込む。見た目を完全に固定したいなら PDF (scripts/export_pdf.py)。
+フォントは埋め込む。見た目を完全に固定したいなら PDF (html-deck-pdf)。
 """
 
 from __future__ import annotations
@@ -26,11 +26,9 @@ import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import review_deck_adapter as adapter  # noqa: E402
+from . import review_deck_adapter as adapter  # noqa: E402
 
-SKILL_DIR = Path(__file__).resolve().parent.parent
-ASSETS = SKILL_DIR / "assets"
+ASSETS = Path(__file__).resolve().parent / "assets"
 
 LINK_RE = re.compile(r"""<link\b[^>]*\brel\s*=\s*["']?stylesheet["']?[^>]*>""", re.I)
 HREF_RE = re.compile(r"""\bhref\s*=\s*["']([^"']+)["']""", re.I)

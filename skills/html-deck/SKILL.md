@@ -62,7 +62,7 @@ description: 材料(メモ・記事・調査資料・議事録・URL・口頭の
 `references/quality-contract.md` の数値だけで進める (黙って飛ばさない)。
 
 **書き出しには使わない。** `pptx` `docx` `xlsx` `pdf` は材料を読む口であって、
-出口ではない。納品物は HTML と、`scripts/export_pdf.py` が出す固定PDF。
+出口ではない。納品物は HTML と、`tools/src/html_deck/export_pdf.py` が出す固定PDF。
 
 ### 材料を読む
 
@@ -102,7 +102,7 @@ description: 材料(メモ・記事・調査資料・議事録・URL・口頭の
 
 ### 場面から情報量の予算を決める
 
-質問2の答えをそのまま数値にする。決めたら**ラウンド0で1度だけ** `gates.json` に反映し、
+質問2の答えをそのまま数値にする。決めたら**ラウンド0で1度だけ** `<deck>/gates.json` に反映し、
 理由を `deck.md` の `constraints` に書く (途中で変えるのは評価ハック)。
 
 | 場面 | 1枚の日本語 | 考え方 |
@@ -125,7 +125,7 @@ description: 材料(メモ・記事・調査資料・議事録・URL・口頭の
 ## 2. 骨格を作る
 
 ```bash
-python <このスキルのディレクトリ>/scripts/init_deck.py <出力先> --title "デッキ名"
+uvx --from <このスキルのディレクトリ>/tools html-deck-init <出力先> --title "デッキ名"
 ```
 
 出力先の既定は、材料と同じディレクトリの `<slug>-deck/`。
@@ -141,7 +141,7 @@ storyboard は1行1枚で、`claim`(言い切りの見出し) と `job`(比較/�
 実装後だと1枚まるごと作り直しになる。
 
 - `visual` 列が「なし」の行が**3つ以上続いていないか。** 続いているならどれかを図にする
-  (`check_deck.py` が `text_only_streak` として落とす)。デッキ全体で図のある枚が**4割以上**
+  (`html-deck-check` が `text_only_streak` として落とす)。デッキ全体で図のある枚が**4割以上**
 - `visual` が「箇条書き」の行が並んでいないか。箇条書きは形ではない。job が比較なら
   比較の絵、因果なら順序の絵になる (`references/layout-playbook.md`)
 - 1行に claim が2つ入っていないか。**1枚1メッセージ。** 入っていたら2枚に割る
@@ -185,6 +185,11 @@ theme.css を決めたら以降は凍結する。触るのは「2枚以上で同
 最初に構図フレームを作り、次に兄弟トラック、最後に子のpaddingと文字・図形を置く。
 構図フレームには必要なら `data-space-frame="composition"`、中央配置には
 `data-space-align="center"`、矢印には `data-space-role="connector"` を付ける。
+
+**`center` は縦も横もキャンバス中央 (800, 450) を要求する。** 見出しの下に置く構図は
+縦中央には来ないので、`center` を付けると横が完璧でも `composition_off_center` で落ちる。
+**見出しの下・左右だけ中央に置きたいときは `center-x` (安全域基準なら `safe-center-x`)** を使う。
+横だけを見て縦は不問になる。
 明示しなくても、検査は表・比較クラスと幅720px以上の大きなgrid/flexを構図フレームとして推定する。
 
 **文字で埋めない。** 箇条書きは6項目まで、1項目60字まで。60字を超えたら、それは
@@ -204,7 +209,7 @@ draw.io を使う場合、上流スキルを `vendor/draw-io/` にそのまま�
 ## 5. 決定的検査（批評より先）
 
 ```bash
-uv run <このスキルのディレクトリ>/scripts/check_deck.py <deck-dir>
+uvx --from <このスキルのディレクトリ>/tools html-deck-check <deck-dir>
 ```
 
 1600x900 のヘッドレスChromeで全枚を実測し、はみ出し・文字切れ・文字サイズ・
@@ -260,7 +265,7 @@ prompt:
   - deck_goal: <合意したゴール>
   - metrics: <report.json の該当スライドの metrics>
   - accepted: <deck.md の ## accepted をそのまま貼る>
-  - user_intents: <review_thread.py <deck> brief --slide 03-evidence の出力を貼る>
+  - user_intents: <html-deck-thread <deck> brief --slide 03-evidence の出力を貼る>
   - html_path: <deck>/slides/03-evidence.html
   返答は指定のJSONのみ。
 ```
@@ -275,7 +280,7 @@ prompt:
   - contact_sheet: <deck>/.loop/round-N/contact-sheet.png   ← 必ず Read で画像を見る
   - storyboard / deck_goal / takeaway / audience / accepted: <deck.md から貼る>
   - layout_metrics: <report.json の全スライドの metrics.space / metrics.layout>
-  - user_intents: <review_thread.py <deck> brief の出力を貼る>
+  - user_intents: <html-deck-thread <deck> brief の出力を貼る>
   返答は指定のJSONのみ。
 ```
 
@@ -284,7 +289,7 @@ prompt:
 
 **`user_intents` を渡し忘れない。** ユーザーがレビューで確定させた意図は
 `deck.md` の `## accepted` にも1行で入っているが、批評担当には**なぜそう決めたか**まで
-渡したほうが効く。`review_thread.py brief` がその形で出す。
+渡したほうが効く。`html-deck-thread brief` がその形で出す。
 
 **返答の `user_conflict` が空でなかったら、実装で直さない。** そこはユーザーが実物を見て
 決めたことなので、批評担当の言い分をそのままユーザーに伝えて判断を仰ぐ
@@ -314,23 +319,25 @@ prompt:
 | 形 | 出し方 | 何のため |
 | --- | --- | --- |
 | デッキ一式 | そのまま | 手直しを続ける。レビューもここから |
-| **1枚のHTML** | `scripts/bundle_deck.py <deck>` | **人に送る。** 外部参照ゼロの1ファイルで、そのまま添付できる |
-| 固定PDF | `uv run scripts/export_pdf.py <deck>` | 見た目を完全に固定する。印刷する |
+| **1枚のHTML** | `uvx --from <このスキルのディレクトリ>/tools html-deck-bundle <deck>` | **人に送る。** 外部参照ゼロの1ファイルで、そのまま添付できる |
+| 固定PDF | `uvx --from <このスキルのディレクトリ>/tools html-deck-pdf <deck>` | 見た目を完全に固定する。印刷する |
 
-`export_pdf.py` は、`theme.css` で指定した書体が**実際に描画に使われたか**を検査して、
-代替書体に落ちていたら書き出さない。生成した環境に書体が無ければ「見た目を固定して
+`html-deck-pdf` は、`theme.css` で指定した書体が**実際に描画に使われたか**を検査して、
+代替書体に落ちていたら書き出さない (**`--mono` は対象外**。等幅は本文の見た目を支配しないので、
+落ちても警告を出すだけで止めない)。生成した環境に書体が無ければ「見た目を固定して
 渡した」とは言えないため。承知のうえなら `--allow-font-fallback` を付ける。
 
-どちらもレビュー画面の **PDF / 1枚HTML ボタン**から押せる (サーバ稼働中のみ)。
+1枚HTML と 固定PDF はレビュー画面のボタンから押せる (サーバ稼働中のみ)。
+**PPTX ボタンも並んでいるが、これは実験的な経路。** 編集可能な .pptx は約束しない (後述)。
 
 渡し方は、`Bash` を `run_in_background: true` で**2本**起動して URL を渡す。
 
 ```bash
-python3 <このスキルのディレクトリ>/scripts/review_server.py <deck-dir> --open
+uvx --from <このスキルのディレクトリ>/tools html-deck-review <deck-dir> --open
 ```
 
 ```bash
-python3 <このスキルのディレクトリ>/scripts/review_wait.py <deck-dir> --timeout 1800
+uvx --from <このスキルのディレクトリ>/tools html-deck-wait <deck-dir> --timeout 1800
 ```
 
 **2本目を忘れない。** サーバは止めるまで動き続けるので完了通知が飛ばず、
@@ -347,7 +354,7 @@ URL を渡したら、`E` で要素をクリックすると入力欄に `#1` の
 そのときは入れ替える。
 
 ```bash
-python3 <このスキルのディレクトリ>/scripts/init_deck.py <deck-dir> --refresh-viewer
+uvx --from <このスキルのディレクトリ>/tools html-deck-init <deck-dir> --refresh-viewer
 ```
 
 タイトルとスライド一覧は引き継ぐ。`theme.css` と `slides/` には触らない
@@ -359,11 +366,11 @@ python3 <このスキルのディレクトリ>/scripts/init_deck.py <deck-dir> -
 
 ブラウザを閉じたあとも見たいだけなら `index.html` を直接開けばよい
 (レビュー機能とボタンは自動で消える。`file://` では要素を選べず、書き出しを走らせる
-プロセスも無いため)。人に送るなら `bundle_deck.py` の1枚を渡す。
+プロセスも無いため)。人に送るなら `html-deck-bundle` の1枚を渡す。
 
 ## 8. ユーザーの指摘を受けて直す
 
-待機 (`review_wait.py`) が終了したら、その標準出力に未読のユーザー発言がそのまま入っている。
+待機 (`html-deck-wait`) が終了したら、その標準出力に未読のユーザー発言がそのまま入っている。
 スレッドを読み直す必要はない。
 
 **指摘1件 = 1本のスレッド = 1つの PR。** 会話して、検査結果を見て、**ユーザーがマージ**して
@@ -373,7 +380,7 @@ python3 <このスキルのディレクトリ>/scripts/init_deck.py <deck-dir> -
 待機が終了 (= ユーザーが発言) → スレッドごとにサブエージェント (deck-fixer)
       ↑                              │  context を渡す / 他のスレッドは渡さない
       │                              ▼
-      │                        直す → review_check.py --level brief → post --state proposed
+      │                        直す → html-deck-recheck --level brief → post --state proposed
       │                              │
       │                        ユーザーが読む → 差し戻し または マージ
       └──────── 待機を張り直す。ユーザーが終わりと言うまで ────────────┘
@@ -382,7 +389,7 @@ python3 <このスキルのディレクトリ>/scripts/init_deck.py <deck-dir> -
 **メインとサブの分担を崩さない。**
 
 - サブ (`agents/deck-fixer.md`) は **`slides/NN.html` だけ**書く。1スレッドだけ見る
-- **`theme.css` を書けるのはメインだけ。** サブは `review_thread.py escalate` で上げてくる。
+- **`theme.css` を書けるのはメインだけ。** サブは `html-deck-thread escalate` で上げてくる。
   同じ `key` が別スライドで2件以上たまったら `decide` で一度に直し、関係スレッド全部に書き戻す
 - メインが受け取るのはマージの結果だけ。**スレッドの会話をメインに持ち込まない**
 
@@ -396,7 +403,7 @@ python3 <このスキルのディレクトリ>/scripts/init_deck.py <deck-dir> -
 - **優先度は user > block > critic。** ユーザーが待っているのに批評の指摘を先に潰さない
 - 位置は `file_line` を第一候補にするが、`anchor_confidence` を必ず見る。
   1件直すたびに行番号はずれるので、2件目以降は `text_excerpt` で取り直す
-- **直したら必ず検査して、結果を添えて返す** (`review_check.py --thread <id> --level brief`)。
+- **直したら必ず検査して、結果を添えて返す** (`html-deck-recheck --thread <id> --level brief`)。
   `block > 0` のままではユーザーがマージできない (サーバが 409 で止める)
 - ユーザーの指示でも `gates.json` は割らない。溢れるなら `deferred` にして理由と代案を返す
 - **マージはユーザーが押す。** そのとき `deck.md` の `## accepted` に確定した意図が積まれる。
@@ -419,35 +426,52 @@ PPTX が必須なら最初から `pptx` スキルで作る。
 | `references/whitespace-theory.md` | 余白の一所有者原則・構図フレーム・layout blockの閾値 | 実装前・実装中 |
 | `references/figures.md` | 図の方式選択・配置パターン・図中の数値契約 | **図や画像を入れる前** |
 | `vendor/draw-io/` | draw.io スキル本体 (MIT / little-hands、改変なし) | draw.io で図を作るとき |
-| `scripts/drawio_svg.py` | `.drawio` → 貼れるSVGへ変換 | 同上 |
+| `tools/src/html_deck/drawio_svg.py` | `.drawio` → 貼れるSVGへ変換 | 同上 |
 | `references/loop.md` | ループ制御・終了条件・評価ハック禁止 | 批評を起動する前 |
 | `references/review.md` | ユーザーの指摘の受け取り方・直し方・閉じ方 | **レビューを回す前** |
 | `agents/slide-critic.md` | 1枚採点のサブエージェント指示 | サブエージェントが読む |
 | `agents/deck-critic.md` | デッキ全体採点のサブエージェント指示 | サブエージェントが読む |
 | `agents/deck-fixer.md` | レビュー1スレッドを担当するサブエージェント指示 | サブエージェントが読む |
-| `assets/gates.json` | しきい値の実体 (ラウンド0でのみ変更可。場面に応じた字数もここ) | 検査結果を解釈するとき |
-| `assets/theme.css` | 共有トークンの骨格 | init_deck が配置 |
-| `assets/shell.css` | ビューアの共通の殻 (配置・配信時に埋め込まれる) | 見た目を直すとき |
+| `tools/src/html_deck/assets/gates.json` | しきい値の実体 (ラウンド0でのみ変更可。場面に応じた字数もここ) | 検査結果を解釈するとき |
+| `tools/src/html_deck/assets/theme.css` | 共有トークンの骨格 | init_deck が配置 |
+| `tools/src/html_deck/assets/shell.css` | ビューアの共通の殻 (配置・配信時に埋め込まれる) | 見た目を直すとき |
 | `assets/slide-template.html` | 1枚の骨格 | 実装時 |
-| `scripts/init_deck.py` | 骨格生成 | 手順2 |
-| `scripts/check_deck.py` | 決定的検査 + スクショ + ビューア同期 | 毎ラウンド |
-| `scripts/test_space_metrics.py` | 余白union・群化比・最大空白・DOM構図契約の自己チェック (ブラウザ不要) | 余白計測を触ったとき |
-| `scripts/export_pdf.py` | 16:9 の固定PDF出力 (指定書体が使われたかを検査する) | 納品時 |
-| `scripts/bundle_deck.py` | デッキ一式を1枚のHTMLに畳む | 渡すとき |
-| `scripts/review_server.py` | デッキを配信し、DOM 指定を JSON に落とす | 手順7・8 |
-| `scripts/review_wait.py` | 指摘が届くまで待つ (終了通知が送信の合図) | 手順7・8 |
-| `scripts/review_threads.py` | スレッドの読み書き・状態遷移・マージ処理 (サーバと CLI が共有) | ライブラリ |
-| `scripts/review_thread.py` | スレッドの CLI。`list` / `context` / `post` / `escalate` / `decide` / `brief` | 手順8 |
-| `scripts/review_check.py` | 検査の濃淡ラッパ (`brief` / `full` / `deck`) | 手順8 |
-| `scripts/test_review_flow.py` | レビュー経路の自己チェック (ブラウザ不要) | レビュー機構を触ったとき |
-| `scripts/test_export_pdf.py` | PDFのフォント照合の自己チェック (ブラウザ不要) | export_pdf.py を触ったとき |
-| `scripts/test_bundle_deck.py` | バンドルがデッキ外を畳まないことの検査 (ブラウザ不要) | bundle_deck.py を触ったとき |
-| `assets/review.html` | **唯一のビューア。** 配信時はレビュー付き、`file://` では自分で畳んでただのビューアになる | サーバ配信 / init_deck が配置 |
+| `tools/src/html_deck/init_deck.py` | 骨格生成 | 手順2 |
+| `tools/src/html_deck/check_deck.py` | 決定的検査 + スクショ + ビューア同期 | 毎ラウンド |
+| `tools/tests/test_space_metrics.py` | 余白union・群化比・最大空白・DOM構図契約の自己チェック (ブラウザ不要) | 余白計測を触ったとき |
+| `tools/src/html_deck/export_pdf.py` | 16:9 の固定PDF出力 (指定書体が使われたかを検査する) | 納品時 |
+| `tools/src/html_deck/export_pptx.py` + `emit_pptx.mjs` | 編集可能PPTXの実験的出力 (Chromeの実測座標を PptxGenJS へ写す) | 実験 |
+| `tools/src/html_deck/setup_export_runtime.py` | pptxgenjs をプロジェクト内に用意する (Python 側は uvx が持つ) | PPTX の初回 |
+| `tools/src/html_deck/bundle_deck.py` | デッキ一式を1枚のHTMLに畳む | 渡すとき |
+| `tools/src/html_deck/review_server.py` | デッキを配信し、DOM 指定を JSON に落とす | 手順7・8 |
+| `tools/src/html_deck/review_wait.py` | 指摘が届くまで待つ (終了通知が送信の合図) | 手順7・8 |
+| `tools/src/html_deck/review_threads.py` | スレッドの読み書き・状態遷移・マージ処理 (サーバと CLI が共有) | ライブラリ |
+| `tools/src/html_deck/review_thread.py` | スレッドの CLI。`list` / `context` / `post` / `escalate` / `decide` / `brief` | 手順8 |
+| `tools/src/html_deck/review_check.py` | 検査の濃淡ラッパ (`brief` / `full` / `deck`) | 手順8 |
+| `tools/tests/test_review_flow.py` | レビュー経路の自己チェック (ブラウザ不要) | レビュー機構を触ったとき |
+| `tools/tests/test_export_pdf.py` | PDFのフォント照合の自己チェック (ブラウザ不要) | html-deck-pdf を触ったとき |
+| `tools/tests/test_skill_layout.py` | SKILL.md や references/ が指すパス・コマンドが実在するかの検査 | **構成を動かしたとき必ず** |
+| `tools/tests/test_bundle_deck.py` | バンドルがデッキ外を畳まないことの検査 (ブラウザ不要) | html-deck-bundle を触ったとき |
+| `tools/pyproject.toml` + `tools/uv.lock` | Python 依存とコマンド名の唯一の記述 | 依存やコマンドを変えるとき |
+| `tools/src/html_deck/assets/review.html` | **唯一のビューア。** 配信時はレビュー付き、`file://` では自分で畳んでただのビューアになる | サーバ配信 / init_deck が配置 |
 
-`check_deck.py` と `export_pdf.py` は `uv run` で依存を自動解決する (サーバから叩くときも同じ)
-(Playwright + システムのChrome。ブラウザの追加ダウンロードは不要)。
-`uv` がない環境では `pip install playwright` の後、`channel="chrome"` が使える
-Chrome/Chromium が要る。
+コードは `tools/` の uv プロジェクト (`html_deck` パッケージ) で、**すべて `uvx` から叩く。**
+Python 本体 (3.14) と Playwright / pypdf は `tools/uv.lock` で固定してあり、uvx が実行時に用意する。
+pptxgenjs だけは uv の管轄外なので、PPTX 書き出しの初回に
+`<プロジェクト>/.html-deck-runtime/node/` へ入る。
+**利用者に `uv sync` も `npm install` も叩かせない。** 初回だけネットワークを使う。
+Playwright はシステムの Chrome を使うのでブラウザの追加ダウンロードは無い。
+uv / Node.js / Chrome が無い場合だけ名指しのエラーになる。
+
+**`tools/` の中を編集したら、素の `uvx` は変更を拾わない。**
+`uvx --from <ローカルパス>` は一度ビルドした結果を uv のキャッシュに固定し、
+src を書き換えても永久に古いまま動く (実測)。編集して動かすときは
+`cd <このスキルのディレクトリ>/tools && uv run html-deck-<cmd> …` を使うか、
+`uvx --refresh-package html-deck …` を付ける。**タグ付きで配る場合はこの罠は無い**
+(タグが変わればキャッシュキーも変わる)。逆に `@main` で取ると同じ罠を踏む。
+
+タグを打って配る場合は `--from` をこう置き換える (散文とコードがずれないように必ずタグを指定する):
+`uvx --from "git+https://github.com/nogikun/html-deck@<tag>#subdirectory=skills/html-deck/tools" html-deck-check <deck>`
 
 ## このスキルが避けようとしている失敗
 
@@ -461,5 +485,5 @@ Chrome/Chromium が要る。
 - 点を上げること自体が目的になる → しきい値はラウンド0で固定、途中変更は結果を無効
 - ユーザーが直させた箇所を、次のラウンドで批評担当が元に戻す → マージが
   `## accepted` に `[user]` 行を積み、以降の批評担当に必ず渡す
-- ユーザーが指摘を送ったのに気づかず放置する → 手順7で `review_wait.py` を必ず一緒に張り、
+- ユーザーが指摘を送ったのに気づかず放置する → 手順7で `html-deck-wait` を必ず一緒に張り、
   1周ごとに張り直す

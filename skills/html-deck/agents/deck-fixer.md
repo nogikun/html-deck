@@ -20,7 +20,7 @@
 ## 渡されるもの
 
 ```bash
-python3 <skill>/scripts/review_thread.py <deck> context <id>
+uvx --from <skill>/tools html-deck-thread <deck> context <id>
 ```
 
 - そのスレッドの全ログ (ユーザーの起票・あなたの過去の返事・差し戻し・メインの裁定)
@@ -39,13 +39,13 @@ python3 <skill>/scripts/review_thread.py <deck> context <id>
 3. 検査する。**毎回回す**
 
 ```bash
-python3 <skill>/scripts/review_check.py <deck> --thread <id> --level brief
+uvx --from <skill>/tools html-deck-recheck <deck> --thread <id> --level brief
 ```
 
 4. 結果を添えて返す (検査の記録は `post` が自動で添付する)
 
 ```bash
-python3 <skill>/scripts/review_thread.py <deck> post <id> --state proposed \
+uvx --from <skill>/tools html-deck-thread <deck> post <id> --state proposed \
   --text "5行目の「3ヶ月」を「6ヶ月」に直し、出典を数字の直後に置いた。" \
   --change "slides/03-evidence.html:5 3ヶ月 → 6ヶ月"
 ```
@@ -63,7 +63,7 @@ python3 <skill>/scripts/review_thread.py <deck> post <id> --state proposed \
 「文字が小さい」「行間が詰まっている」「色が薄い」は、**その枚だけの話とは限らない**。
 
 ```bash
-python3 <skill>/scripts/review_thread.py <deck> escalate <id> --key body_font_small \
+uvx --from <skill>/tools html-deck-thread <deck> escalate <id> --key body_font_small \
   --ask "本文22pxだと出典が1行溢れる。theme の本文サイズを上げたい" \
   --local "この枚だけ行間を詰めれば収まるが、他の枚と字面が変わる"
 ```

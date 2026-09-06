@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ユーザーの発言が現れるまで待ち、現れたら中身を出して終了する。
 
-    python3 scripts/review_wait.py <deck> [--timeout 1800]
+    uvx --from <このスキルのディレクトリ>/tools html-deck-wait <deck> [--timeout 1800]
 
 なぜ要るか:
   review_server.py は止めるまで動き続けるので、「ユーザーが何か言った」という
@@ -29,9 +29,8 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import review_deck_adapter as adapter  # noqa: E402
-import review_threads as threads  # noqa: E402
+from . import review_deck_adapter as adapter  # noqa: E402
+from . import review_threads as threads  # noqa: E402
 
 
 def main() -> int:

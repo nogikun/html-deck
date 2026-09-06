@@ -108,7 +108,12 @@
 
 ## 3. 図の中の数値契約
 
-`assets/gates.json` に入っていて、`check_deck.py` が実測する。
+`tools/src/html_deck/assets/gates.json` に入っていて、`html-deck-check` が実測する。
+
+**色帯の上に白抜き文字を置かない。** コントラストの背景は DOM の祖先の `background-color` を
+辿って決めるので、SVG の `<rect fill>` は背景として数えられない。帯を濃色で塗ってその上に
+`--on-accent` のラベルを置くと、実際には読めていても本文色 対 ページ背景で測られて
+`low_contrast` で落ちる。ラベルは帯の外に出すか、帯と同系の濃い文字色にする。
 
 | 項目 | 基準 | 判定 | なぜ |
 | --- | --- | --- | --- |
@@ -164,15 +169,15 @@
 5. SVGへ書き出す
 
    ```bash
-   python <このスキルのディレクトリ>/scripts/drawio_svg.py <deck>/figures/<name>.drawio --title "図の説明"
+   uvx --from <このスキルのディレクトリ>/tools html-deck-drawio <deck>/figures/<name>.drawio --title "図の説明"
    ```
 
    `width`/`height` を外して `viewBox` を残し、`color-scheme` を除き、
    `role="img"` と `<title>` を付けた状態で出る
 6. 出たSVGの中身をスライドの `<figure>` へ**そのまま貼る**
-7. `check_deck.py` で実効文字サイズ・重なり・線幅・色まで測る
+7. `html-deck-check` で実効文字サイズ・重なり・線幅・色まで測る
 
-draw.io 本体が無い環境では `scripts/drawio_svg.py` がその旨を出して止まる
+draw.io 本体が無い環境では `html-deck-drawio` がその旨を出して止まる
 (macOS: `brew install --cask drawio`)。無い場合は方式Aの手書きSVGに寄せる。
 
 ## 5. よくある失敗

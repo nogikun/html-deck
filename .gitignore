@@ -12,8 +12,12 @@ docs/*
 !docs/specs/*.md
 
 __pycache__/
-node_modules/
+
+# pptxgenjs の置き場所。初回の PPTX 書き出しで自動生成される
 .html-deck-runtime/
+
+# uv がスキル内に作る開発用 venv (uvx 経由では作られない)
+.venv/
 
 # テスト用
 work

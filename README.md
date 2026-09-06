@@ -35,26 +35,31 @@ npx skills add nogikun/html-deck
 | パス                                           | 役割                                                  |
 | ---------------------------------------------- | ----------------------------------------------------- |
 | `skills/html-deck/SKILL.md`                  | Codex に渡す制作手順と品質基準                        |
-| `skills/html-deck/assets/`                   | スライド雛形、共有テーマ、ビューア、検査しきい値      |
-| `skills/html-deck/scripts/init_deck.py`      | 新しいデッキの骨格を作成                              |
-| `skills/html-deck/scripts/check_deck.py`     | デッキを実測し、検査結果と画像を出力                  |
-| `skills/html-deck/scripts/export_pdf.py`     | スライドを固定レイアウト PDF に結合                   |
-| `skills/html-deck/scripts/drawio_svg.py`     | `.drawio` を貼り込み用 SVG に変換                   |
-| `skills/html-deck/scripts/review_server.py`  | レビューモードのサーバ。DOM 指定を JSON に落とす      |
-| `skills/html-deck/scripts/review_wait.py`    | 指摘が届くまで待機（送信を検知する経路）              |
-| `skills/html-deck/scripts/review_thread.py`  | 指摘スレッドの読み書き。確定判断を `deck.md` に積む   |
-| `skills/html-deck/scripts/bundle_deck.py`    | デッキ一式を1枚の HTML に畳む                         |
+| `skills/html-deck/tools/src/html_deck/assets/`                   | スライド雛形、共有テーマ、ビューア、検査しきい値      |
+| `skills/html-deck/tools/src/html_deck/init_deck.py`      | 新しいデッキの骨格を作成                              |
+| `skills/html-deck/tools/src/html_deck/check_deck.py`     | デッキを実測し、検査結果と画像を出力                  |
+| `skills/html-deck/tools/src/html_deck/export_pdf.py`     | スライドを固定レイアウト PDF に結合                   |
+| `skills/html-deck/tools/src/html_deck/drawio_svg.py`     | `.drawio` を貼り込み用 SVG に変換                   |
+| `skills/html-deck/tools/src/html_deck/review_server.py`  | レビューモードのサーバ。DOM 指定を JSON に落とす      |
+| `skills/html-deck/tools/src/html_deck/review_wait.py`    | 指摘が届くまで待機（送信を検知する経路）              |
+| `skills/html-deck/tools/src/html_deck/review_thread.py`  | 指摘スレッドの読み書き。確定判断を `deck.md` に積む   |
+| `skills/html-deck/tools/src/html_deck/bundle_deck.py`    | デッキ一式を1枚の HTML に畳む                         |
 | `skills/html-deck/references/`               | レイアウト、図、反復改善のガイド                      |
 | `skills/html-deck/agents/`                   | スライド単位・デッキ全体の批評用指示                  |
-| `skills/html-deck/assets/review.html`        | 唯一のビューア。`index.html` としても配置される       |
+| `skills/html-deck/tools/src/html_deck/assets/review.html`        | 唯一のビューア。`index.html` としても配置される       |
 | `docs/design/`                               | 設計ドキュメント                                      |
 | `docs/`                                      | このスキルで作成したデッキの例                        |
 
 ## 必要なもの
 
-- Python 3.10 以降
-- [uv](https://docs.astral.sh/uv/)（検査・PDF 出力時。必要な Python パッケージを自動解決します）
-- Google Chrome または Chromium（`check_deck.py` と `export_pdf.py` が使用）
+- [uv](https://docs.astral.sh/uv/)
+- Node.js（PPTX 出力時）
+- Google Chrome または Chromium（検査・PDF・PPTX が使用）
+
+Python のツールは `skills/html-deck/tools/` に uv プロジェクトとして入っています。
+Python 本体（3.14）と Playwright / pypdf は `tools/uv.lock` で固定してあり、`uvx` が実行時に用意します。
+PptxGenJS だけは uv の管轄外なので、初回の PPTX 書き出しで `<プロジェクト>/.html-deck-runtime/` に入ります。
+事前の `uv sync` も `npm install` も要りません。
 
 このリポジトリには Nix 開発環境も含まれています。Nix と direnv を利用する場合は、リポジトリ直下で次を実行すると `mise` と `task` を利用できます。
 
@@ -62,7 +67,7 @@ npx skills add nogikun/html-deck
 direnv allow
 ```
 
-> `uv`、Python、Chrome は必要に応じて別途用意してください。Nix の設定では固定していません。
+> uv、Node.js、Chrome は必要に応じて別途用意してください。Nix の設定では固定していません。
 
 ## 使い方
 
@@ -83,7 +88,7 @@ direnv allow
 スクリプトを直接使う場合は、出力先とタイトルを指定します。
 
 ```bash
-python skills/html-deck/scripts/init_deck.py ./output/product-proposal-deck \
+uvx --from skills/html-deck/tools html-deck-init ./output/product-proposal-deck \
   --title "プロダクト提案"
 ```
 
@@ -105,7 +110,7 @@ output/product-proposal-deck/
 ### 3. 検査する
 
 ```bash
-uv run skills/html-deck/scripts/check_deck.py ./output/product-proposal-deck
+uvx --from skills/html-deck/tools html-deck-check ./output/product-proposal-deck
 ```
 
 検査ごとに `.loop/round-N/` へ次が保存されます。
@@ -117,8 +122,8 @@ uv run skills/html-deck/scripts/check_deck.py ./output/product-proposal-deck
 `block` が残っている間は、先にレイアウトや可読性の問題を修正してください。特定のスライドだけ確認したい場合や画像を省略したい場合は、次のように指定できます。
 
 ```bash
-uv run skills/html-deck/scripts/check_deck.py ./output/product-proposal-deck --slide 03
-uv run skills/html-deck/scripts/check_deck.py ./output/product-proposal-deck --no-shots
+uvx --from skills/html-deck/tools html-deck-check ./output/product-proposal-deck --slide 03
+uvx --from skills/html-deck/tools html-deck-check ./output/product-proposal-deck --no-shots
 ```
 
 検査は `index.html` のスライド一覧もファイル名順に更新します。ビューアは `index.html` を Chrome などのブラウザで直接開いて確認できます。ローカルサーバーは不要です。
@@ -128,7 +133,7 @@ uv run skills/html-deck/scripts/check_deck.py ./output/product-proposal-deck --n
 構造が複雑な図は draw.io で作成できます。変換後の SVG は `<img>` ではなく、内容をスライド HTML の `<figure>` 内に直接貼り込みます。これにより、図内の文字や線も検査対象になります。
 
 ```bash
-python skills/html-deck/scripts/drawio_svg.py \
+uvx --from skills/html-deck/tools html-deck-drawio \
   ./output/product-proposal-deck/figures/architecture.drawio \
   --title "処理の全体像"
 ```
@@ -140,7 +145,7 @@ draw.io アプリが見つからない場合は、スクリプトの案内に従
 生成したデッキをブラウザで開き、スライド上の要素を直接指して直しを出せます。
 
 ```bash
-python3 skills/html-deck/scripts/review_server.py ./output/product-proposal-deck --open
+uvx --from skills/html-deck/tools html-deck-review ./output/product-proposal-deck --open
 ```
 
 表示された URL を開き、`E` キーでレビューモードに入ります。要素にカーソルを合わせると
@@ -167,7 +172,7 @@ AI エージェントがそのまま読んで修正できます。会話も状�
 
 上のコマンドは手動で実行する場合のものです。**スキル経由で使う場合、起動から指摘の取り込み、
 修正、記録までは AI エージェント側が行います。** ユーザーは渡された URL で指摘を出すだけです。
-エージェントは `review_wait.py` を併走させ、送信された時点で気づきます。
+エージェントは `html-deck-wait` を併走させ、送信された時点で気づきます。
 
 > レビューモードには**ローカルサーバーが必要**です。`file://` で開いた場合、ブラウザの制約に
 > よりページ内の要素を選択できません。`index.html` を直接開くとレビュー機能は自動的に
@@ -178,7 +183,7 @@ AI エージェントがそのまま読んで修正できます。会話も状�
 すべての検査と目視確認が済んだら、固定レイアウトの PDF を出力します。
 
 ```bash
-uv run skills/html-deck/scripts/export_pdf.py ./output/product-proposal-deck \
+uvx --from skills/html-deck/tools html-deck-pdf ./output/product-proposal-deck \
   -o ./output/product-proposal.pdf
 ```
 
@@ -194,8 +199,7 @@ PptxGenJS を使い、Chrome が計算した座標をテキスト行・背景図
 PowerPoint側で再現するのではなく、既存の1600×900pxレイアウトとブラウザ上の改行位置を先に確定してから出力します。
 
 ```bash
-npm install
-uv run skills/html-deck/scripts/export_pptx.py ./work/ctfp-for-new-engineers-deck \
+uvx --from skills/html-deck/tools html-deck-pptx ./work/ctfp-for-new-engineers-deck \
   -o ./work/ctfp-for-new-engineers-deck/ctfp-for-new-engineers-deck.pptx
 ```
 
@@ -208,7 +212,7 @@ uv run skills/html-deck/scripts/export_pptx.py ./work/ctfp-for-new-engineers-dec
 人に送るだけなら、1枚の HTML に畳むほうが手軽です。外部参照が無いのでそのまま添付できます。
 
 ```bash
-python skills/html-deck/scripts/bundle_deck.py ./output/product-proposal-deck
+uvx --from skills/html-deck/tools html-deck-bundle ./output/product-proposal-deck
 ```
 
 どちらもレビュー画面のツールバーのボタンから実行できます（サーバー稼働中のみ）。

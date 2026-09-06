@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """レビュー中の検査を、契機に応じた濃さで回す薄いラッパ。
 
-    python3 scripts/review_check.py <deck> --thread fb-003 --level brief   # 修正のたび
-    python3 scripts/review_check.py <deck> --thread fb-003 --level full    # マージ前
-    python3 scripts/review_check.py <deck> --level deck                    # theme を触った後
+    uvx --from <このスキルのディレクトリ>/tools html-deck-recheck <deck> --thread fb-003 --level brief   # 修正のたび
+    uvx --from <このスキルのディレクトリ>/tools html-deck-recheck <deck> --thread fb-003 --level full    # マージ前
+    uvx --from <このスキルのディレクトリ>/tools html-deck-recheck <deck> --level deck                    # theme を触った後
 
 やること:
   1. check_deck.py を適切な引数で呼ぶ (brief = 該当枚のみ・スクショなし)
@@ -24,11 +24,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import review_deck_adapter as adapter  # noqa: E402
-import review_threads as threads  # noqa: E402
+from . import review_deck_adapter as adapter  # noqa: E402
+from . import review_threads as threads  # noqa: E402
 
-HERE = Path(__file__).resolve().parent
 SEV = ("block", "review", "info")
 
 
@@ -50,7 +48,7 @@ def slide_of(root: Path, tid: str) -> str:
 
 def run(root: Path, *, slide: str | None, shots: bool, out: Path) -> dict:
     extra = (["--slide", slide] if slide else []) + ([] if shots else ["--no-shots"])
-    proc = adapter.run_script(HERE / "check_deck.py", root, "--out", out, *extra)
+    proc = adapter.run_script("check_deck", root, "--out", out, *extra)
     report = out / "report.json"
     if not report.is_file():
         raise SystemExit("error: check_deck.py が report.json を出さなかった\n"

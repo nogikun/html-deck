@@ -1,12 +1,8 @@
-#!/usr/bin/env -S uv run --quiet --script
-# /// script
-# requires-python = ">=3.10"
-# dependencies = ["playwright>=1.44"]
-# ///
+#!/usr/bin/env python3
 """固定1600x900キャンバスでHTMLスライドを実測し、決定的な合否と数値指標を返す。
 
 使い方:
-    uv run scripts/check_deck.py <deck-dir> [--round N] [--slide 03] [--no-shots]
+    uvx --from <このスキルのディレクトリ>/tools html-deck-check <deck-dir> [--round N] [--slide 03] [--no-shots]
 
 やること:
   1. slides/*.html を走査して index.html のスライド一覧を再生成する
@@ -29,8 +25,22 @@ import sys
 from statistics import median, pstdev
 from pathlib import Path
 
-SKILL_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_GATES = SKILL_DIR / "assets" / "gates.json"
+
+DEFAULT_GATES = Path(__file__).resolve().parent / "assets" / "gates.json"
+
+
+def gates_for(deck: Path) -> Path:
+    """デッキ配下に gates.json があればそれを使う。無ければ同梱の既定値。
+
+    場面ごとに字数の上限を変える運用 (SKILL.md 手順1) の反映先。同梱側は
+    uv のキャッシュに展開されるので書き換えられないし、書き換えたら他の
+    デッキにも波及する。デッキの隣に置けば、変えた事実がデッキと一緒に残る。
+
+    ponytail: ファイル丸ごと差し替え (マージしない)。同梱の既定が更新されても
+    デッキ側は追随しない。追随させたいなら差分だけを重ねる形にする。
+    """
+    local = deck / "gates.json"
+    return local if local.is_file() else DEFAULT_GATES
 
 # ---------------------------------------------------------------- 計測用JS
 
@@ -1452,7 +1462,8 @@ def main() -> int:
     ap.add_argument("deck", type=Path, help="デッキのディレクトリ (index.html と slides/ がある場所)")
     ap.add_argument("--round", type=int, default=None, help="ラウンド番号。省略時は自動採番")
     ap.add_argument("--slide", action="append", default=None, help="特定スライドだけ検査 (例 --slide 03)")
-    ap.add_argument("--gates", type=Path, default=DEFAULT_GATES)
+    ap.add_argument("--gates", type=Path, default=None,
+                    help="既定は <deck>/gates.json、無ければ同梱の gates.json")
     ap.add_argument("--no-shots", action="store_true", help="スクリーンショットを撮らない (高速)")
     ap.add_argument("--out", type=Path, default=None,
                     help="結果の出力先。既定は <deck>/.loop/round-N。"
@@ -1472,7 +1483,8 @@ def main() -> int:
         print("検査対象のスライドがない", file=sys.stderr)
         return 2
 
-    gates = json.loads(args.gates.read_text(encoding="utf-8"))
+    gates_path = args.gates or gates_for(deck)
+    gates = json.loads(gates_path.read_text(encoding="utf-8"))
     W, H = gates["canvas"]["width"], gates["canvas"]["height"]
 
     loop_dir = deck / ".loop"

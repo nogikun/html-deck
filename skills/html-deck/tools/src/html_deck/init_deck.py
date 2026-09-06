@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """デッキの雛形を作る。
 
-    python scripts/init_deck.py <出力ディレクトリ> --title "デッキ名"
+    uvx --from <このスキルのディレクトリ>/tools html-deck-init <出力ディレクトリ> --title "デッキ名"
 
 作るもの:
     <dir>/deck.md        契約 (ゴール・対象・ストーリーボード) の正本
@@ -21,8 +21,7 @@ import shutil
 import sys
 from pathlib import Path
 
-SKILL_DIR = Path(__file__).resolve().parent.parent
-ASSETS = SKILL_DIR / "assets"
+ASSETS = Path(__file__).resolve().parent / "assets"
 
 SHELL_MARK = "/* __SHELL__ */"
 
@@ -175,7 +174,7 @@ def main() -> int:
         print(f"  + {p.relative_to(deck)}")
     if not created:
         print("  (既存のまま。上書きするなら --force)")
-    print(f"\nスライドの骨格: {ASSETS / 'slide-template.html'}")
+    print("\nスライドの骨格: このスキルの assets/slide-template.html")
     print("次: deck.md の goal をユーザーと合意 → theme.css をデザイン → slides/NN-slug.html を実装")
     return 0
 

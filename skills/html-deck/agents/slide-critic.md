@@ -13,7 +13,7 @@
 - `screenshot`: 1600x900 のPNG (これが正本。HTMLソースの意図ではなく、見えている絵を採点する)
 - `slide_contract`: id / claim / job / evidence / 問い(入)→問い(出)
 - `deck_goal`: デッキ全体のゴールと対象者
-- `metrics`: check_deck.py の実測値 (文字サイズ、階層比、占有率、和文字数、`space`の空白構造、`layout`のDOM構図契約)
+- `metrics`: html-deck-check の実測値 (文字サイズ、階層比、占有率、和文字数、`space`の空白構造、`layout`のDOM構図契約)
 - `accepted`: 前のラウンドで「これで行く」と確定した判断のリスト
 - `user_intents`: **ユーザー本人がレビューで確定させた意図**。`accepted` の中でも別格
 - `html_path`: 必要なら読んでよいが、判断の根拠は必ず絵の側に置く

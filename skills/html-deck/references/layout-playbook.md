@@ -67,7 +67,7 @@
 
 ### 片寄り・重なりの修復順
 
-`check_deck.py` の `layout_overlap`、`composition_off_center`、`layout_child_shift`、
+`html-deck-check` の `layout_overlap`、`composition_off_center`、`layout_child_shift`、
 `connector_track_wide`、`redundant_gap_owner` は、子の座標を微調整する指示ではない。
 次の順に親を直す。
 

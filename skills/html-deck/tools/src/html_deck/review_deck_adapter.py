@@ -31,25 +31,16 @@ def utf8_io() -> None:
             pass          # 差し替えられたストリームなら諦める (出力の問題でしかない)
 
 
-def runtime_python(root: Path | None) -> Path | None:
-    """Return the deck-local Python, if its runtime has been provisioned."""
-    if root is None:
-        return None
-    runtime = root / ".html-deck-runtime"
-    candidates = (
-        runtime / "Scripts" / "python.exe",
-        runtime / "bin" / "python",
-    )
-    return next((path for path in candidates if path.is_file()), None)
+def script_cmd(module: str) -> list[str]:
+    """同じパッケージのコマンドを子プロセスで叩く。
+
+    同じ環境の中にいるので `python -m` で足りる。ランタイムを探す処理は
+    もう要らない — Python 側は uvx / uv sync が用意している。
+    """
+    return [sys.executable, "-m", f"html_deck.{module}"]
 
 
-def script_cmd(script: Path, root: Path | None = None) -> list[str]:
-    """Run deck scripts with the deck-local runtime; never route through uv."""
-    python = runtime_python(root) or Path(sys.executable)
-    return [str(python), str(script)]
-
-
-def run_script(script: Path, *args: str, timeout: float | None = None):
+def run_script(module: str, *args: str, timeout: float | None = None):
     """同梱スクリプトを起動して結果を返す。**文字コードは UTF-8 に固定する。**
 
     `text=True` だけだとロケールで復号する。Windows の cp932 で子の UTF-8 出力を
@@ -58,8 +49,7 @@ def run_script(script: Path, *args: str, timeout: float | None = None):
     ここで欲しいのは呼び出し側へ見せるログであって、1文字の正確さではない。
     """
     env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
-    root = Path(args[0]) if args and (Path(args[0]) / "slides").is_dir() else None
-    return subprocess.run(script_cmd(script, root) + [str(a) for a in args],
+    return subprocess.run(script_cmd(module) + [str(a) for a in args],
                           capture_output=True, text=True,
                           encoding="utf-8", errors="replace",
                           env=env, timeout=timeout)

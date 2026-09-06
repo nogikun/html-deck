@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """デッキをローカル配信し、ブラウザ上の DOM 指定をフィードバック JSON に落とす。
 
-    python3 scripts/review_server.py <deck-dir> [--open] [--port N]
+    uvx --from <このスキルのディレクトリ>/tools html-deck-review <deck-dir> [--open] [--port N]
 
 なぜサーバが要るか:
   file:// では親ページから iframe の contentDocument に到達できない (Chrome で実測、
@@ -31,14 +31,15 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import review_anchor as anchor  # noqa: E402
-import review_deck_adapter as adapter  # noqa: E402
-import review_threads as threads  # noqa: E402
+from .setup_export_runtime import ensure_node
 
-SKILL_DIR = Path(__file__).resolve().parent.parent
-REVIEW_HTML = SKILL_DIR / "assets" / "review.html"
-SHELL_CSS = SKILL_DIR / "assets" / "shell.css"
+from . import review_anchor as anchor  # noqa: E402
+from . import review_deck_adapter as adapter  # noqa: E402
+from . import review_threads as threads  # noqa: E402
+
+ASSETS = Path(__file__).resolve().parent / "assets"
+REVIEW_HTML = ASSETS / "review.html"
+SHELL_CSS = ASSETS / "shell.css"
 
 _lock = threading.Lock()
 # 1プロセスにつき書き出しは1本だけ。Chromeを同時起動するとmacOSで固まりやすい。
@@ -165,9 +166,8 @@ def create_reply(root: Path, payload: dict) -> dict:
 
 def run_full_check(root: Path, tid: str) -> tuple[dict | None, str]:
     """マージ前の full 検査。落ちても人の合意を止めない (理由を記録して通す)。"""
-    script = Path(__file__).resolve().parent / "review_check.py"
     try:
-        proc = adapter.run_script(script, root, "--thread", tid, "--level", "full", timeout=300)
+        proc = adapter.run_script("review_check", root, "--thread", tid, "--level", "full", timeout=300)
     except Exception as e:      # noqa: BLE001 - 検査が回らない理由は握りつぶさず記録して通す
         return None, f"検査を実行できなかった: {type(e).__name__}: {e}"
     path = adapter.feedback_dir(root) / "checks" / f"{tid}.json"
@@ -181,25 +181,24 @@ def run_full_check(root: Path, tid: str) -> tuple[dict | None, str]:
     return {k: rec.get(k) for k in ("at", "level", "slide", "block", "review", "info", "delta", "top")}, ""
 
 
-def run_export(root: Path, script: str, *args: str) -> dict:
+def run_export(root: Path, module: str, *args: str) -> dict:
     if not _export_lock.acquire(blocking=False):
         return {"ok": False, "error": "別の書き出しが実行中です。完了後にもう一度お試しください"}
     try:
-        return _run_export(root, script, *args)
+        return _run_export(root, module, *args)
     finally:
         _export_lock.release()
 
 
-def _run_export(root: Path, script: str, *args: str) -> dict:
+def _run_export(root: Path, module: str, *args: str) -> dict:
     """書き出し系スクリプトをそのまま叩く。ロジックはサーバに持たせない。
 
     ブラウザから起動できるのはサーバが動いているときだけ。デッキ同梱の
     index.html を file:// で開いた場合は、起動方法をポップアップで案内する。
     """
-    here = Path(__file__).resolve().parent
-    if script == "export_pdf.py":
+    if module == "export_pdf":
         ext, content_type = "pdf", "application/pdf"
-    elif script == "export_pptx.py":
+    elif module == "export_pptx":
         ext, content_type = "pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     else:
         ext, content_type = "html", "text/html; charset=utf-8"
@@ -207,12 +206,12 @@ def _run_export(root: Path, script: str, *args: str) -> dict:
     with tempfile.TemporaryDirectory(prefix="html-deck-export-") as tmp:
         out_path = Path(tmp) / filename
         try:
-            timeout = 60 if script == "export_pptx.py" else 600
-            proc = adapter.run_script(here / script, root, "-o", out_path, *args, timeout=timeout)
+            timeout = 60 if module == "export_pptx" else 600
+            proc = adapter.run_script(module, root, "-o", out_path, *args, timeout=timeout)
         except Exception as e:      # noqa: BLE001 - 起動できない理由は全部ここでボタンに返す
-            return {"ok": False, "error": f"{script} を実行できなかった: {type(e).__name__}: {e}"}
+            return {"ok": False, "error": f"{module} を実行できなかった: {type(e).__name__}: {e}"}
         if proc.returncode == 0 and not out_path.is_file():
-            return {"ok": False, "error": f"{script} は出力ファイルを作成しなかった"}
+            return {"ok": False, "error": f"{module} は出力ファイルを作成しなかった"}
         data = out_path.read_bytes() if proc.returncode == 0 else None
     out = "\n".join(l for l in (proc.stdout or "").splitlines() if l.strip())
     err = "\n".join(l for l in (proc.stderr or "").splitlines() if l.strip())
@@ -363,12 +362,12 @@ def make_handler(root: Path, token: str):
             if u.path == "/__review/api/export":
                 kind = payload.get("kind")
                 if kind == "pdf":
-                    res = run_export(root, "export_pdf.py",
+                    res = run_export(root, "export_pdf",
                                      *(["--allow-font-fallback"] if payload.get("force") else []))
                 elif kind == "pptx":
-                    res = run_export(root, "export_pptx.py")
+                    res = run_export(root, "export_pptx")
                 elif kind == "html":
-                    res = run_export(root, "bundle_deck.py")
+                    res = run_export(root, "bundle_deck")
                 else:
                     return self._json({"error": f"pdf、pptx、html のいずれか: {kind!r}"}, 400)
                 print(f'[export] {kind} {"ok" if res["ok"] else "失敗"}', flush=True)
@@ -414,6 +413,15 @@ def main() -> int:
     if not adapter.is_deck(root):
         print(f"error: {root} に slides/ がありません", file=sys.stderr)
         return 2
+
+    # 書き出しボタンを押した瞬間に30秒黙る、を避けるため先に用意しておく。
+    # 失敗してもサーバは立てる — レビュー本体は Node も Playwright も要らない。
+    try:
+        ensure_node(root)
+    except Exception as e:      # noqa: BLE001 - 理由は全部そのまま見せる
+        print(f"warning: 書き出し用ランタイムを用意できなかった: {e}", file=sys.stderr)
+        print("  レビューは使えます。PDF/PPTX ボタンを押したときに再試行します。",
+              file=sys.stderr, flush=True)
 
     token = secrets.token_urlsafe(12)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(root, token))

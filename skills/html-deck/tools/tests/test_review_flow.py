@@ -15,11 +15,10 @@ import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
 
-import init_deck  # noqa: E402
-import review_server as server  # noqa: E402
-import review_threads as T  # noqa: E402
+from html_deck import init_deck  # noqa: E402
+from html_deck import review_server as server  # noqa: E402
+from html_deck import review_threads as T  # noqa: E402
 
 SLIDE = """<!doctype html><html lang="ja"><head><meta charset="utf-8">
 <title>回収期間</title></head><body><main><h1>回収は3ヶ月</h1>

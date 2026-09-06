@@ -20,10 +20,9 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
 
-import bundle_deck  # noqa: E402
-import init_deck  # noqa: E402
+from html_deck import bundle_deck  # noqa: E402
+from html_deck import init_deck  # noqa: E402
 
 SECRET = "TOP-SECRET-DO-NOT-BUNDLE"
 

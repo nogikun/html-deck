@@ -24,7 +24,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-import review_deck_adapter as adapter
+from . import review_deck_adapter as adapter
 
 _lock = threading.RLock()
 
@@ -235,7 +235,8 @@ def pending_by_key(root: Path) -> dict[str, list[dict]]:
 def aggregate_min(root: Path, gates: dict | None = None) -> int:
     """しきい値は gates.json に置く。基準の置き場を1箇所にまとめるため。"""
     if gates is None:
-        gates_path = Path(__file__).resolve().parent.parent / "assets" / "gates.json"
+        from .check_deck import gates_for
+        gates_path = gates_for(root)
         try:
             gates = json.loads(gates_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):

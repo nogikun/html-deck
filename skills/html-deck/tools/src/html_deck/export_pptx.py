@@ -1,14 +1,9 @@
-#!/usr/bin/env -S uv run --quiet --script
-# /// script
-# requires-python = ">=3.10"
-# dependencies = ["playwright>=1.44"]
-# ///
+#!/usr/bin/env python3
 """既存のHTMLスライドを実測し、PptxGenJSの編集可能な部品へ変換する。
 
-使い方:
-    npm install
-    uv run skills/html-deck/scripts/export_pptx.py <deck-dir>
-    uv run skills/html-deck/scripts/export_pptx.py <deck-dir> -o output.pptx
+使い方 (事前のインストールは要らない。初回だけ自分でランタイムを作る):
+    uvx --from <このスキルのディレクトリ>/tools html-deck-pptx <deck-dir>
+    uvx --from <このスキルのディレクトリ>/tools html-deck-pptx <deck-dir> -o output.pptx
 
 変換対象は TextLine / Shape / Line / Table / SVG / Image の最小集合。CSSレイアウトはChromeに解決させ、
 PptxGenJSには計算済みの矩形だけを渡す。SVGは1つのSVG画像として保持する。
@@ -26,8 +21,9 @@ import tempfile
 from pathlib import Path
 
 
+from .setup_export_runtime import ensure_node
+
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = SCRIPT_DIR.parents[2]
 EMITTER = SCRIPT_DIR / "emit_pptx.mjs"
 CANVAS = {"width": 1600, "height": 900}
 
@@ -491,6 +487,7 @@ def main() -> int:
         args.write_ir.write_text(json.dumps(ir, ensure_ascii=False, indent=2), encoding="utf-8")
 
     node = resolve_node(args.node)
+    package_root = ensure_node(deck)
 
     with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8", delete=False) as fh:
         json.dump(ir, fh, ensure_ascii=False)
@@ -498,8 +495,8 @@ def main() -> int:
     try:
         subprocess.run(
             [node, str(EMITTER), "--input", str(ir_path), "--output", str(output),
-             "--package-root", str(deck if (deck / "node_modules" / "pptxgenjs").is_dir() else PROJECT_ROOT)],
-            cwd=PROJECT_ROOT,
+             "--package-root", str(package_root)],
+            cwd=str(package_root),
             check=True,
         )
     finally:

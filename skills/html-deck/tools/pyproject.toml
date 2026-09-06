@@ -1,0 +1,39 @@
+# このスキルのコードとその材料 (assets/, emit_pptx.mjs) をひとまとめにする。
+# SKILL.md / references/ / agents/ は「モデルに読ませる散文」なのでパッケージには入れない。
+#
+#   uvx --from <このスキルのディレクトリ>/tools html-deck-check <deck>
+#   uvx --from "git+https://github.com/nogikun/html-deck@<tag>#subdirectory=skills/html-deck/tools" html-deck-check <deck>
+#
+# タグ付きで呼ぶこと。@main で取ると SKILL.md (散文) とコードが静かにずれる。
+[project]
+name = "html-deck"
+version = "0.1.0"
+description = "HTML スライドの生成・実測検査・PDF/PPTX 書き出し"
+requires-python = ">=3.14"
+dependencies = [
+    "playwright>=1.60",
+    "pypdf>=6.0",
+]
+
+[project.scripts]
+html-deck-init    = "html_deck.init_deck:main"
+html-deck-check   = "html_deck.check_deck:main"
+html-deck-pdf     = "html_deck.export_pdf:main"
+html-deck-pptx    = "html_deck.export_pptx:main"
+html-deck-bundle  = "html_deck.bundle_deck:main"
+html-deck-drawio  = "html_deck.drawio_svg:main"
+html-deck-review  = "html_deck.review_server:main"
+html-deck-wait    = "html_deck.review_wait:main"
+html-deck-thread  = "html_deck.review_thread:main"
+html-deck-recheck = "html_deck.review_check:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/html_deck"]
+
+[tool.hatch.build]
+# コードが読む材料。同梱しないと uv のキャッシュから走ったときに見つからない
+artifacts = ["src/html_deck/assets/**", "src/html_deck/emit_pptx.mjs"]

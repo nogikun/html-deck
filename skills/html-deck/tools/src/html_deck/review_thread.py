@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """スレッドを読み書きする CLI。エージェント側の入口。
 
-    python3 scripts/review_thread.py <deck> list
-    python3 scripts/review_thread.py <deck> context fb-003      # サブに渡す束
-    python3 scripts/review_thread.py <deck> post fb-003 --state proposed \
+    uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> list
+    uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> context fb-003      # サブに渡す束
+    uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> post fb-003 --state proposed \
         --text "23行目を6ヶ月に、footer に出典を追加した" \
         --change "slides/03-evidence.html:23 3ヶ月 → 6ヶ月"
-    python3 scripts/review_thread.py <deck> escalate fb-003 --key body_font_small \
+    uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> escalate fb-003 --key body_font_small \
         --ask "本文22pxだと1行溢れる" --local "この枚だけ行間を詰めれば収まる"
-    python3 scripts/review_thread.py <deck> escalations           # メインが見る台帳
-    python3 scripts/review_thread.py <deck> decide --key body_font_small \
+    uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> escalations           # メインが見る台帳
+    uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> decide --key body_font_small \
         --status applied_by_main --note "theme.css の本文を22→24pxにした"
-    python3 scripts/review_thread.py <deck> notify \
+    uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> notify \
         --text "theme の本文を22→24pxにした。この枚の見え方も変わっている"
-    python3 scripts/review_thread.py <deck> brief                 # 確定済みの意図
+    uvx --from <このスキルのディレクトリ>/tools html-deck-thread <deck> brief                 # 確定済みの意図
 
 **merged にする道はここに無い。** マージはユーザーがブラウザで押すもので、
 エージェントが自分で確定させられてはいけない。
@@ -27,9 +27,8 @@ import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import review_deck_adapter as adapter  # noqa: E402
-import review_threads as T  # noqa: E402
+from . import review_deck_adapter as adapter  # noqa: E402
+from . import review_threads as T  # noqa: E402
 
 CHANGE_RE = re.compile(r"^(?P<file>[\w./\-]+):(?P<line>\d+)(?:\s+(?P<note>.*))?$")
 

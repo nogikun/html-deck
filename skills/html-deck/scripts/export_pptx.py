@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -26,6 +27,7 @@ from pathlib import Path
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parents[3]
 EMITTER = SCRIPT_DIR / "emit_pptx.mjs"
 CANVAS = {"width": 1600, "height": 900}
 
@@ -398,8 +400,55 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("deck", type=Path)
     parser.add_argument("-o", "--output", type=Path)
     parser.add_argument("--node", default="node", help="Node.js executable")
+    parser.add_argument(
+        "--browser",
+        default=os.environ.get("HTML_DECK_BROWSER"),
+        help="Chrome/Chromium executable path (or set HTML_DECK_BROWSER)",
+    )
     parser.add_argument("--write-ir", type=Path, help="also keep the generated DeckIR JSON")
     return parser.parse_args()
+
+
+def resolve_node(command: str) -> str:
+    """Resolve a command without relying on the shell or its working directory."""
+    candidate = Path(command).expanduser()
+    if not candidate.is_absolute() and candidate.name.lower() in {
+        "node", "node.exe", "nodejs", "nodejs.exe",
+    }:
+        resolved = shutil.which(command)
+        if resolved:
+            return resolved
+        raise RuntimeError("Node.js が見つかりません。Node.js をインストールするか --node で指定してください")
+    resolved = candidate.resolve()
+    if not resolved.is_file():
+        raise RuntimeError(f"Node.js 実行ファイルがありません: {resolved}")
+    return str(resolved)
+
+
+def launch_browser(playwright, executable: str | None):
+    """Prefer the installed Chrome, then a locally installed Playwright browser."""
+    if executable:
+        path = Path(executable).expanduser().resolve()
+        if not path.is_file():
+            raise RuntimeError(f"Chrome/Chromium 実行ファイルがありません: {path}")
+        return playwright.chromium.launch(executable_path=str(path), headless=True)
+
+    try:
+        return playwright.chromium.launch(channel="chrome", headless=True)
+    except Exception as chrome_error:  # noqa: BLE001 - fallback is the compatibility path
+        bundled = Path(playwright.chromium.executable_path)
+        if not bundled.is_file():
+            raise RuntimeError(
+                "Chrome を起動できませんでした。Google Chrome をインストールするか、"
+                "--browser で Chrome/Chromium の実行ファイルを指定してください"
+            ) from chrome_error
+        try:
+            return playwright.chromium.launch(executable_path=str(bundled), headless=True)
+        except Exception as bundled_error:  # noqa: BLE001 - retain a short actionable error
+            raise RuntimeError(
+                "Chrome/Chromium を起動できませんでした。"
+                "--browser で別の実行ファイルを指定してください"
+            ) from bundled_error
 
 
 def main() -> int:
@@ -417,32 +466,31 @@ def main() -> int:
 
     pages = []
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(channel="chrome", headless=True)
-        page = browser.new_page(
-            viewport={"width": CANVAS["width"], "height": CANVAS["height"]},
-            device_scale_factor=1,
-            reduced_motion="reduce",
-        )
-        for slide in files:
-            page.goto(slide.as_uri())
-            page.wait_for_load_state("load")
-            page.wait_for_timeout(120)
-            data = page.evaluate(EXTRACT_IR_JS)
-            if round(data["width"]) != CANVAS["width"] or round(data["height"]) != CANVAS["height"]:
-                raise RuntimeError(f"{slide.name}: canvas is {data['width']}x{data['height']}, expected 1600x900")
-            pages.append({"source": str(slide), **data})
-        browser.close()
+        browser = launch_browser(playwright, args.browser)
+        try:
+            page = browser.new_page(
+                viewport={"width": CANVAS["width"], "height": CANVAS["height"]},
+                device_scale_factor=1,
+                reduced_motion="reduce",
+            )
+            for slide in files:
+                page.goto(slide.as_uri())
+                page.wait_for_load_state("load")
+                page.wait_for_timeout(120)
+                page.evaluate("document.fonts.ready.then(() => true)")
+                data = page.evaluate(EXTRACT_IR_JS)
+                if round(data["width"]) != CANVAS["width"] or round(data["height"]) != CANVAS["height"]:
+                    raise RuntimeError(f"{slide.name}: canvas is {data['width']}x{data['height']}, expected 1600x900")
+                pages.append({"source": str(slide), **data})
+        finally:
+            browser.close()
 
     ir = {"title": deck.name, "canvas": CANVAS, "slides": pages}
     if args.write_ir:
         args.write_ir.parent.mkdir(parents=True, exist_ok=True)
         args.write_ir.write_text(json.dumps(ir, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    node = args.node
-    if not Path(node).is_absolute() and Path(node).name.lower() in {
-        "node", "node.exe", "nodejs", "nodejs.exe",
-    }:
-        node = shutil.which(node) or node
+    node = resolve_node(args.node)
 
     with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8", delete=False) as fh:
         json.dump(ir, fh, ensure_ascii=False)
@@ -450,7 +498,7 @@ def main() -> int:
     try:
         subprocess.run(
             [node, str(EMITTER), "--input", str(ir_path), "--output", str(output)],
-            cwd=SCRIPT_DIR.parents[2],
+            cwd=PROJECT_ROOT,
             check=True,
         )
     finally:

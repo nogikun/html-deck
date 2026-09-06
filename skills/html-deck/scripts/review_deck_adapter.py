@@ -111,7 +111,30 @@ def run_script(script: Path, *args: str, timeout: float | None = None):
     cmd = script_cmd(script)
     if len(cmd) > 1 and cmd[1] == "run":
         env["UV_CACHE_DIR"] = str(_uv_cache_dir(cmd[0], env))
-    return subprocess.run(cmd + [str(a) for a in args],
+    full_cmd = cmd + [str(a) for a in args]
+    result = subprocess.run(full_cmd,
+                            capture_output=True, text=True,
+                            encoding="utf-8", errors="replace",
+                            env=env, timeout=timeout)
+    if len(cmd) <= 1 or cmd[1] != "run" or result.returncode == 0:
+        return result
+
+    # A cache can pass a simple write probe while uv still cannot read one of
+    # its internal entries. Retry only that startup failure; export itself is
+    # not run until uv has finished creating the environment.
+    log = f"{result.stdout}\n{result.stderr}"
+    cache_failure = re.search(
+        r"(?:cache|sdists|environments).*?(?:operation not permitted|permission denied|access is denied|failed to open)",
+        log,
+        re.IGNORECASE | re.DOTALL,
+    )
+    fallback = Path(tempfile.gettempdir()) / "html-deck-uv-cache"
+    if not cache_failure or Path(env["UV_CACHE_DIR"]).resolve() == fallback.resolve():
+        return result
+    if not _writable_dir(fallback):
+        return result
+    env["UV_CACHE_DIR"] = str(fallback)
+    return subprocess.run(full_cmd,
                           capture_output=True, text=True,
                           encoding="utf-8", errors="replace",
                           env=env, timeout=timeout)

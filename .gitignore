@@ -8,6 +8,7 @@ docs/*
 !docs/HTMLスライド生成アーキテクチャ調査.md
 
 __pycache__/
+node_modules/
 
 # テスト用
 work

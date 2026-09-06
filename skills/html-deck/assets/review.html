@@ -33,6 +33,25 @@
     }
     .btn .kbd { color: var(--text-3); font: 11px/1 var(--mono); }
     .btn[aria-pressed="true"] .kbd { color: inherit; opacity: .7; }
+    .export-menu { position: relative; }
+    .export-menu > summary { list-style: none; }
+    .export-menu > summary::-webkit-details-marker { display: none; }
+    .export-menu[open] > summary { background: var(--chrome-2); border-color: var(--line); }
+    .export-popover {
+      position: absolute; top: calc(100% + 6px); right: 0; z-index: 25; width: 236px;
+      padding: 5px; border: 1px solid var(--line-2); border-radius: 6px;
+      background: var(--card); box-shadow: var(--shadow-2);
+    }
+    .export-item {
+      display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px;
+      padding: 6px 9px; border: 0; border-radius: 4px; background: none;
+      color: var(--text); text-align: left; cursor: pointer;
+    }
+    .export-item:hover:not(:disabled), .export-item:focus-visible { background: var(--accent-soft); }
+    .export-item:disabled { opacity: .55; cursor: wait; }
+    .export-item .format { width: 42px; flex: none; font: 600 11px/1 var(--mono); color: var(--accent); }
+    .export-item .description { min-width: 0; font-size: 12px; line-height: 1.35; }
+    .export-item .description small { display: block; color: var(--text-3); font-size: 10.5px; }
 
     /* ------------------------------------------------------- 本体 (舞台+ペイン) */
     .work { display: grid; grid-template-columns: 1fr 0; min-height: 0; min-width: 0; }
@@ -264,8 +283,25 @@
     <div class="tally" id="tally"></div>
     <div class="progress" aria-hidden="true"><span id="progress"></span></div>
     <div class="sep"></div>
-    <button class="btn" id="pdfBtn" type="button" title="16:9 の固定PDFを書き出す">PDF</button>
-    <button class="btn" id="htmlBtn" type="button" title="1枚のHTMLに畳んで書き出す">1枚HTML</button>
+    <details class="export-menu" id="exportMenu">
+      <summary class="btn" title="書き出し形式を選択" aria-label="書き出し形式を選択">
+        <span aria-hidden="true">☰</span><span>エクスポート</span>
+      </summary>
+      <div class="export-popover" role="menu" aria-label="書き出し形式">
+        <button class="export-item" type="button" role="menuitem" data-export-kind="pdf">
+          <span class="format">PDF</span>
+          <span class="description">固定PDF<small>見た目をそのまま保存</small></span>
+        </button>
+        <button class="export-item" type="button" role="menuitem" data-export-kind="pptx">
+          <span class="format">PPTX</span>
+          <span class="description">PowerPoint<small>編集可能なスライドとして変換</small></span>
+        </button>
+        <button class="export-item" type="button" role="menuitem" data-export-kind="html">
+          <span class="format">HTML</span>
+          <span class="description">1枚HTML<small>外部参照を畳んで保存</small></span>
+        </button>
+      </div>
+    </details>
     <div class="sep"></div>
     <button class="btn icon" id="themeBtn" type="button" title="表示テーマ (T)" aria-label="表示テーマ"></button>
   </header>
@@ -331,7 +367,7 @@
     <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="serverPromptTitle">
       <button class="btn icon close" id="serverPromptClose" type="button" aria-label="閉じる">✕</button>
       <h2 id="serverPromptTitle">レビューと書き出しにはサーバーが必要です</h2>
-      <p>file://ではDOMレビューとPDF/1枚HTMLの書き出しができません。以下のプロンプトをコピーして実行を依頼してください。</p>
+      <p>file://ではDOMレビューとPDF/PPTX/1枚HTMLの書き出しができません。以下のプロンプトをコピーして、html-deckのルートで実行してください。</p>
       <textarea id="serverPromptText" readonly aria-label="review_server.py の起動依頼プロンプト"></textarea>
       <button class="copy" id="serverPromptCopy" type="button">プロンプトをコピー</button>
       <p id="serverPromptStatus" aria-live="polite"></p>
@@ -695,12 +731,14 @@ function toast(msg, kind) {
   clearTimeout(toast._id); toast._id = setTimeout(() => { t.dataset.show = "false"; }, 3000);
 }
 
-/* 書き出しはサーバ側のスクリプト (export_pdf.py / bundle_deck.py) をそのまま叩く。
+/* 書き出しはサーバ側のスクリプト (export_pdf.py / export_pptx.py / bundle_deck.py) をそのまま叩く。
    ブラウザ側にロジックを持たせると、CLI と挙動が割れて片方だけ直す事故になる。 */
 let pdfFallbackOK = false;   // 書体が無いと言われた直後の2度押しだけ許す
+const exportMenu = $("exportMenu");
 
 async function exportAs(kind, btn) {
   const label = btn.textContent;
+  exportMenu.open = false;
   btn.disabled = true; btn.textContent = "書き出し中…";
   try {
     // 読んだら必ず落とす。残すと、間に別の操作を挟んだ後の PDF まで
@@ -714,7 +752,7 @@ async function exportAs(kind, btn) {
     if (r.ok && !type.includes("application/json")) {
       const cd = r.headers.get("Content-Disposition") || "";
       const name = cd.match(/filename="([^"]+)"/)?.[1]
-        || (kind === "pdf" ? "deck.pdf" : "deck.html");
+        || ({ pdf: "deck.pdf", pptx: "deck.pptx", html: "deck.html" }[kind] || "deck");
       const a = document.createElement("a");
       a.href = URL.createObjectURL(await r.blob()); a.download = name;
       document.body.append(a); a.click(); a.remove();
@@ -1158,7 +1196,7 @@ function reviewPrompt() {
   const path = decodeURIComponent(location.pathname || "").replace(/[\\/]([^\\/]*)$/, "") || ".";
   const command = `python3 skills/html-deck/scripts/review_server.py ${shellQuote(path)}`;
   return [
-    "このデッキのDOMレビューとPDF/1枚HTMLの書き出しを有効にしてください。",
+    "このデッキのDOMレビューとPDF/PPTX/1枚HTMLの書き出しを有効にしてください。",
     "html-deckリポジトリのルートで、次のコマンドを実行してください。",
     command,
     "表示された review URL をブラウザで開いてください。",
@@ -1166,6 +1204,7 @@ function reviewPrompt() {
 }
 function showReviewServerPrompt() {
   if (SERVED) return;
+  exportMenu.open = false;
   $("serverPromptText").value = reviewPrompt();
   $("serverPromptStatus").textContent = "";
   $("serverPrompt").dataset.show = "true";
@@ -1630,8 +1669,9 @@ $("serverPromptClose").onclick = closeReviewServerPrompt;
 $("serverPromptBackdrop").onclick = closeReviewServerPrompt;
 $("serverPromptCopy").onclick = copyReviewPrompt;
 $("paneClose").onclick = () => setReview(false);
-$("pdfBtn").onclick = () => SERVED ? exportAs("pdf", $("pdfBtn")) : showReviewServerPrompt();
-$("htmlBtn").onclick = () => SERVED ? exportAs("html", $("htmlBtn")) : showReviewServerPrompt();
+document.querySelectorAll("[data-export-kind]").forEach((btn) => {
+  btn.onclick = () => SERVED ? exportAs(btn.dataset.exportKind, btn) : showReviewServerPrompt();
+});
 $("themeBtn").onclick = () => setTheme(currentTheme() === "dark" ? "light" : "dark");
 $("fullscreen").onclick = async () => {
   if (!document.fullscreenElement) await document.documentElement.requestFullscreen();

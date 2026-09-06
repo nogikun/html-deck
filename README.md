@@ -188,6 +188,23 @@ PDF は閲覧環境のフォント差異による崩れを避けるための納�
 それでは見た目を固定して渡したことにならないため、**実際に描画に使われた書体を検査して、
 落ちていれば書き出しません**。承知のうえで出すなら `--allow-font-fallback` を付けます。
 
+### 7. 編集可能な PPTX を実験的に出力する
+
+PptxGenJS を使い、Chrome が計算した座標をテキスト行・背景図形・境界線・SVG・画像へ写像します。CSSを
+PowerPoint側で再現するのではなく、既存の1600×900pxレイアウトとブラウザ上の改行位置を先に確定してから出力します。
+
+```bash
+npm install
+uv run skills/html-deck/scripts/export_pptx.py ./work/ctfp-for-new-engineers-deck \
+  -o ./work/ctfp-for-new-engineers-deck/ctfp-for-new-engineers-deck.pptx
+```
+
+テキスト、背景図形、境界線は編集できます。HTMLの`<table>`はPowerPointのネイティブ表として出力するため、
+セル内容、行列、結合セルをPowerPoint上で編集できます。テキストはブラウザの実測行ごとに分割し、PowerPoint側の
+自動縮小・再折返しを無効化しています。インラインSVGは1つのSVG画像として配置されるため、SVG内部の
+線や文字を個別編集するものではありません。HTMLの複雑なCSS効果やPowerPointと異なるフォント
+メトリクスは、完全一致ではなく検査対象です。
+
 人に送るだけなら、1枚の HTML に畳むほうが手軽です。外部参照が無いのでそのまま添付できます。
 
 ```bash

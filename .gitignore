@@ -12,6 +12,7 @@ docs/*
 !docs/specs/*.md
 
 __pycache__/
+node_modules/
 
 # テスト用
 work

@@ -199,7 +199,8 @@ uv run skills/html-deck/scripts/export_pptx.py ./work/ctfp-for-new-engineers-dec
   -o ./work/ctfp-for-new-engineers-deck/ctfp-for-new-engineers-deck.pptx
 ```
 
-テキスト、背景図形、境界線は編集できます。テキストはブラウザの実測行ごとに分割し、PowerPoint側の
+テキスト、背景図形、境界線は編集できます。HTMLの`<table>`はPowerPointのネイティブ表として出力するため、
+セル内容、行列、結合セルをPowerPoint上で編集できます。テキストはブラウザの実測行ごとに分割し、PowerPoint側の
 自動縮小・再折返しを無効化しています。インラインSVGは1つのSVG画像として配置されるため、SVG内部の
 線や文字を個別編集するものではありません。HTMLの複雑なCSS効果やPowerPointと異なるフォント
 メトリクスは、完全一致ではなく検査対象です。

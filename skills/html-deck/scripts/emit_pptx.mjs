@@ -105,6 +105,71 @@ function addShape(slide, item) {
   });
 }
 
+function tableBorderOptions(border) {
+  if (!border || border.alpha <= 0.01 || border.width <= 0 || border.type === "none") return { type: "none" };
+  return {
+    type: border.type || "solid",
+    color: border.hex,
+    pt: Math.max(0.25, border.width * POINTS_PER_CSS_PX),
+  };
+}
+
+function tableRunOptions(run) {
+  return {
+    fontFace: run.fontFace,
+    fontSize: run.fontSize * POINTS_PER_CSS_PX,
+    color: run.color,
+    bold: run.fontWeight >= 600,
+    italic: run.italic,
+    charSpacing: run.charSpacing || undefined,
+    breakLine: run.breakLine,
+  };
+}
+
+function tableCellText(cell) {
+  return cell.runs?.length
+    ? cell.runs.map((run) => ({ text: run.text, options: tableRunOptions(run) }))
+    : cell.text || "";
+}
+
+function tableCellOptions(cell) {
+  const options = {
+    fontFace: cell.fontFace,
+    fontSize: cell.fontSize * POINTS_PER_CSS_PX,
+    color: cell.color,
+    bold: cell.fontWeight >= 600,
+    italic: cell.italic,
+    align: cell.align,
+    valign: cell.valign,
+    lineSpacing: cell.lineHeight * POINTS_PER_CSS_PX,
+    charSpacing: cell.charSpacing || undefined,
+    margin: cell.margin.map((value) => value * POINTS_PER_CSS_PX),
+    fill: fillOptions(cell.fill),
+    border: cell.border.map(tableBorderOptions),
+    fit: "none",
+    wrap: true,
+  };
+  if (cell.colspan) options.colspan = cell.colspan;
+  if (cell.rowspan) options.rowspan = cell.rowspan;
+  return options;
+}
+
+function addTable(slide, item) {
+  const rows = item.rows.map((row) => row.map((cell) => ({
+    text: tableCellText(cell),
+    options: tableCellOptions(cell),
+  })));
+  slide.addTable(rows, {
+    ...box(item),
+    colW: item.colW.map((value) => value / INCH),
+    rowH: item.rowH.map((value) => value / INCH),
+    fill: fillOptions(item.fill),
+    border: item.border.map(tableBorderOptions),
+    margin: 0,
+    autoPage: false,
+  });
+}
+
 for (const page of ir.slides) {
   const slide = pptx.addSlide();
   slide.background = { color: page.background.hex };
@@ -119,6 +184,8 @@ for (const page of ir.slides) {
     } else if (item.kind === "image") {
       const src = item.src.startsWith("file:") ? fileURLToPath(item.src) : item.src;
       slide.addImage({ path: src, ...box(item) });
+    } else if (item.kind === "table") {
+      addTable(slide, item);
     } else {
       throw new Error(`Unsupported DeckIR item: ${item.kind}`);
     }

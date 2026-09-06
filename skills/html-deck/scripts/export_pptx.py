@@ -10,7 +10,7 @@
     uv run skills/html-deck/scripts/export_pptx.py <deck-dir>
     uv run skills/html-deck/scripts/export_pptx.py <deck-dir> -o output.pptx
 
-変換対象は TextLine / Shape / Line / SVG / Image の最小集合。CSSレイアウトはChromeに解決させ、
+変換対象は TextLine / Shape / Line / Table / SVG / Image の最小集合。CSSレイアウトはChromeに解決させ、
 PptxGenJSには計算済みの矩形だけを渡す。SVGは1つのSVG画像として保持する。
 """
 
@@ -165,6 +165,114 @@ EXTRACT_IR_JS = r"""
       return { kind: "text", id: el.dataset.pptxId || "", x, y, w: Math.max(1, right - x), h: Math.max(lineHeight, bottom - y), runs };
     }).filter((line) => line && line.runs.length);
   };
+  const tableBorderOf = (cs, side) => {
+    const border = borderOf(cs, side);
+    return {
+      hex: border.hex,
+      alpha: border.alpha,
+      width: border.width,
+      style: border.style,
+      type: border.style === "dashed" || border.style === "dotted" ? "dash" : border.style === "none" ? "none" : "solid",
+    };
+  };
+  const tableCellOf = (cell, meta) => {
+    const cs = getComputedStyle(cell);
+    const style = textStyleOf(cell);
+    const lines = collectTextLines(cell);
+    const runs = lines.flatMap((line, lineIndex) => line.runs.map((run, runIndex) => ({
+      ...run,
+      breakLine: lineIndex < lines.length - 1 && runIndex === line.runs.length - 1,
+    })));
+    const text = lines.map((line) => line.runs.map((run) => run.text).join("")).join("\n");
+    return {
+      text,
+      runs,
+      fill: parseColor(cs.backgroundColor),
+      border: [
+        tableBorderOf(cs, "Top"),
+        tableBorderOf(cs, "Right"),
+        tableBorderOf(cs, "Bottom"),
+        tableBorderOf(cs, "Left"),
+      ],
+      fontFace: style.fontFace,
+      fontSize: style.fontSize,
+      fontWeight: style.fontWeight,
+      italic: style.italic,
+      color: style.color,
+      align: ["left", "center", "right"].includes(style.align) ? style.align : "left",
+      valign: { top: "top", middle: "middle", bottom: "bottom" }[cs.verticalAlign] || "top",
+      lineHeight: style.lineHeight,
+      charSpacing: style.charSpacing,
+      margin: ["Top", "Right", "Bottom", "Left"].map((side) => parseFloat(cs[`padding${side}`] || "0")),
+      colspan: meta.colspan > 1 ? meta.colspan : undefined,
+      rowspan: meta.rowspan > 1 ? meta.rowspan : undefined,
+    };
+  };
+  const tableItemOf = (table, rect) => {
+    const rows = [...table.rows];
+    const occupied = [];
+    const placements = new Map();
+    let columnCount = 0;
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+      occupied[rowIndex] ||= [];
+      let column = 0;
+      for (const cell of rows[rowIndex].cells) {
+        while (occupied[rowIndex][column]) column += 1;
+        const colspan = Math.max(1, cell.colSpan || 1);
+        const rowspan = cell.rowSpan === 0 ? rows.length - rowIndex : Math.max(1, cell.rowSpan || 1);
+        placements.set(cell, { row: rowIndex, col: column, colspan, rowspan });
+        for (let r = rowIndex; r < rowIndex + rowspan; r += 1) {
+          occupied[r] ||= [];
+          for (let c = column; c < column + colspan; c += 1) occupied[r][c] = true;
+        }
+        column += colspan;
+        columnCount = Math.max(columnCount, column);
+      }
+    }
+    const edges = Array(columnCount + 1).fill(null);
+    edges[0] = 0;
+    edges[columnCount] = rect.w;
+    const setEdge = (index, value) => {
+      if (edges[index] == null) edges[index] = value;
+      else edges[index] = (edges[index] + value) / 2;
+    };
+    for (const [cell, meta] of placements) {
+      const cellRect = cell.getBoundingClientRect();
+      setEdge(meta.col, cellRect.left - rect.x);
+      setEdge(meta.col + meta.colspan, cellRect.right - rect.x);
+    }
+    for (let start = 0; start < edges.length;) {
+      if (edges[start] != null) {
+        start += 1;
+        continue;
+      }
+      const left = start - 1;
+      let end = start;
+      while (end < edges.length && edges[end] == null) end += 1;
+      const right = edges[end] ?? rect.w;
+      const step = (right - edges[left]) / (end - left);
+      for (let i = start; i < end; i += 1) edges[i] = edges[left] + step * (i - left);
+      start = end;
+    }
+    const rowH = rows.map((row) => row.getBoundingClientRect().height);
+    const tableRows = rows.map((row) => [...row.cells].map((cell) => tableCellOf(cell, placements.get(cell))));
+    const cs = getComputedStyle(table);
+    return {
+      kind: "table",
+      id: table.dataset.pptxId || "",
+      ...rect,
+      colW: edges.slice(1).map((edge, index) => Math.max(1, edge - edges[index])),
+      rowH,
+      rows: tableRows,
+      fill: parseColor(cs.backgroundColor),
+      border: [
+        tableBorderOf(cs, "Top"),
+        tableBorderOf(cs, "Right"),
+        tableBorderOf(cs, "Bottom"),
+        tableBorderOf(cs, "Left"),
+      ],
+    };
+  };
   const paintItems = (el, rect, style) => {
     const items = [];
     if (style.backgroundImage && style.backgroundImage !== "none") {
@@ -230,6 +338,10 @@ EXTRACT_IR_JS = r"""
     }
     if (tag === "img") {
       items.push({ kind: "image", id: el.dataset.pptxId || "", ...rect, src: el.currentSrc || el.src });
+      return;
+    }
+    if (tag === "table") {
+      items.push(tableItemOf(el, rect));
       return;
     }
     const paintStyle = paintStyleOf(el);

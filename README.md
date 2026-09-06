@@ -9,7 +9,7 @@
 以下のコマンドを実行し、ターミナル上で適用先を指定
 
 ```bash
-npx skills add nogikun/gen-slide-skills
+npx skills add nogikun/html-deck
 ```
 
 ## できること

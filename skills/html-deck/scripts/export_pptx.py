@@ -27,7 +27,7 @@ from pathlib import Path
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = SCRIPT_DIR.parents[3]
+PROJECT_ROOT = SCRIPT_DIR.parents[2]
 EMITTER = SCRIPT_DIR / "emit_pptx.mjs"
 CANVAS = {"width": 1600, "height": 900}
 

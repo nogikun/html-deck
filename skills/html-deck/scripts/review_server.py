@@ -41,6 +41,8 @@ REVIEW_HTML = SKILL_DIR / "assets" / "review.html"
 SHELL_CSS = SKILL_DIR / "assets" / "shell.css"
 
 _lock = threading.Lock()
+# 1プロセスにつき書き出しは1本だけ。Chromeを同時起動するとmacOSで固まりやすい。
+_export_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------- 解決
@@ -180,6 +182,15 @@ def run_full_check(root: Path, tid: str) -> tuple[dict | None, str]:
 
 
 def run_export(root: Path, script: str, *args: str) -> dict:
+    if not _export_lock.acquire(blocking=False):
+        return {"ok": False, "error": "別の書き出しが実行中です。完了後にもう一度お試しください"}
+    try:
+        return _run_export(root, script, *args)
+    finally:
+        _export_lock.release()
+
+
+def _run_export(root: Path, script: str, *args: str) -> dict:
     """書き出し系スクリプトをそのまま叩く。ロジックはサーバに持たせない。
 
     ブラウザから起動できるのはサーバが動いているときだけ。デッキ同梱の
@@ -196,7 +207,8 @@ def run_export(root: Path, script: str, *args: str) -> dict:
     with tempfile.TemporaryDirectory(prefix="html-deck-export-") as tmp:
         out_path = Path(tmp) / filename
         try:
-            proc = adapter.run_script(here / script, root, "-o", out_path, *args, timeout=600)
+            timeout = 60 if script == "export_pptx.py" else 600
+            proc = adapter.run_script(here / script, root, "-o", out_path, *args, timeout=timeout)
         except Exception as e:      # noqa: BLE001 - 起動できない理由は全部ここでボタンに返す
             return {"ok": False, "error": f"{script} を実行できなかった: {type(e).__name__}: {e}"}
         if proc.returncode == 0 and not out_path.is_file():

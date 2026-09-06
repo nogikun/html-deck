@@ -12,6 +12,7 @@ sys.path.insert(0, str(HERE))
 
 import export_pptx  # noqa: E402
 import review_deck_adapter as adapter  # noqa: E402
+import review_server  # noqa: E402
 
 
 def test_node_path() -> None:
@@ -31,7 +32,17 @@ def test_deck_runtime() -> None:
         assert "uv" not in command
 
 
+def test_export_lock() -> None:
+    assert review_server._export_lock.acquire(blocking=False)
+    try:
+        result = review_server.run_export(Path("/tmp/does-not-matter"), "export_pptx.py")
+        assert not result["ok"] and "実行中" in result["error"]
+    finally:
+        review_server._export_lock.release()
+
+
 if __name__ == "__main__":
     test_node_path()
     test_deck_runtime()
+    test_export_lock()
     print("export_pptx self-check: ok")

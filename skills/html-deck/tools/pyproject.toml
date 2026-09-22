@@ -1,10 +1,10 @@
 # このスキルのコードとその材料 (assets/, emit_pptx.mjs) をひとまとめにする。
 # SKILL.md / references/ / agents/ は「モデルに読ませる散文」なのでパッケージには入れない。
 #
-#   uvx --from <このスキルのディレクトリ>/tools html-deck-check <deck>
-#   uvx --from "git+https://github.com/nogikun/html-deck@<tag>#subdirectory=skills/html-deck/tools" html-deck-check <deck>
+#   uv run --project "<このスキルのディレクトリ>/tools" html-deck-check <deck>
 #
-# タグ付きで呼ぶこと。@main で取ると SKILL.md (散文) とコードが静かにずれる。
+# 呼び口はこれだけ。uvx は使わない — ビルド結果を uv のキャッシュに固定するので、
+# src や依存を書き換えても古いまま動く。
 [project]
 name = "html-deck"
 version = "0.1.0"

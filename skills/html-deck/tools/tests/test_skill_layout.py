@@ -99,6 +99,23 @@ def test_no_bare_interpreter_commands() -> None:
     assert not bad, "インタプリタ直呼びの実行例: " + ", ".join(bad)
 
 
+def test_no_uvx() -> None:
+    """`uvx` を呼び口として書かないこと。
+
+    コードは配布物に同梱される (`npx skills add` はスキルディレクトリを丸ごとコピーする)
+    ので、取り寄せる手順は要らない。uvx はビルド結果を uv のキャッシュに固定するため、
+    src を書き換えても依存を足しても古いまま動く (「pypdf が無い」で落ちた。実測)。
+    """
+    # 拾うのは呼び出しの形 (`uvx --from …` / `uvx html-deck-…`) だけ。
+    # 「uvx は使わない」と書いた散文まで落とすと、禁止を書けなくなる。
+    pat = re.compile(r"uvx\s+[-A-Za-z]")
+    targets = SHIPPED + DOCS + [TOOLS / "pyproject.toml"]
+    bad = [f"{f.relative_to(SKILL)}:{i}" for f in targets
+           for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1)
+           if pat.search(line)]
+    assert not bad, "uvx の実行例: " + ", ".join(bad)
+
+
 def test_generated_commands_are_declared() -> None:
     """ユーザーがコピーする文面が、実在するコマンドを呼んでいること。
 
@@ -147,7 +164,7 @@ def test_assets_shipped_with_code() -> None:
 if __name__ == "__main__":
     for fn in (test_frontmatter, test_commands_resolve, test_docs_use_only_declared_commands,
                test_docs_paths_exist, test_no_stale_script_paths,
-               test_no_bare_interpreter_commands, test_generated_commands_are_declared,
+               test_no_bare_interpreter_commands, test_no_uvx, test_generated_commands_are_declared,
                test_docs_do_not_name_modules_as_commands, test_assets_shipped_with_code):
         fn()
     print("skill layout self-check: ok")

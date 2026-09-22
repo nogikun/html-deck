@@ -87,6 +87,10 @@ direnv allow
 
 スクリプトを直接使う場合は、出力先とタイトルを指定します。
 
+以降の例はリポジトリを clone した場合のパスです。`npx skills add` で入れた場合は、
+`skills/html-deck/tools` を入った先（`.claude/skills/html-deck/tools` など）に読み替えてください。
+コードはスキルと一緒にコピーされるので、別途取り寄せる手順は要りません。
+
 ```bash
 uv run --project skills/html-deck/tools html-deck-init ./output/product-proposal-deck \
   --title "プロダクト提案"

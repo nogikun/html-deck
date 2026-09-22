@@ -151,8 +151,13 @@ description: 材料(メモ・記事・調査資料・議事録・URL・口頭の
 ## 2. 骨格を作る
 
 ```bash
-uv run --project <このスキルのディレクトリ>/tools html-deck-init <出力先> --title "デッキ名"
+uv run --project "<このスキルのディレクトリ>/tools" html-deck-init <出力先> --title "デッキ名"
 ```
+
+`<このスキルのディレクトリ>` は、**この SKILL.md が置かれているディレクトリ**。
+`npx skills add nogikun/html-deck` で入れたなら `.claude/skills/html-deck/` など、
+リポジトリから使うなら `skills/html-deck/`。以降のコマンドも全部ここを起点にする。
+**パスに空白が入ることがあるので、引用符で囲んで渡す。**
 
 出力先の既定は、材料と同じディレクトリの `<slug>-deck/`。
 `deck.md` / `theme.css` / `index.html`(ビューア) / `slides/` ができる。
@@ -502,12 +507,12 @@ pptxgenjs だけは uv の管轄外なので、PPTX 書き出しの初回に
 Playwright はシステムの Chrome を使うのでブラウザの追加ダウンロードは無い。
 uv / Node.js / Chrome が無い場合だけ名指しのエラーになる。
 
-**`uvx --from <ローカルパス>` は使わない。** ビルド結果を uv のキャッシュに固定するので、
-`tools/` の src を書き換えても、`pyproject.toml` に依存を足しても、古いまま動く
-(依存を足した直後に「pypdf が無い」で落ちた。実測)。`uv run --project` にはこの罠が無い。
+コードは配布物に同梱される。`npx skills add nogikun/html-deck` はスキルディレクトリを
+丸ごとコピーするので、入れた先に `tools/` がそのまま届く。取り寄せる手順は要らない。
 
-タグを打って配る場合だけ `uvx` を使う (散文とコードがずれないように必ずタグを指定する):
-`uvx --from "git+https://github.com/nogikun/html-deck@<tag>#subdirectory=skills/html-deck/tools" html-deck-check <deck>`
+**呼び口は `uv run --project` だけ。`uvx` は使わない。** ビルド結果を uv のキャッシュに
+固定するので、`tools/` の src を書き換えても、`pyproject.toml` に依存を足しても、
+古いまま動く (依存を足した直後に「pypdf が無い」で落ちた。実測)。
 
 ## このスキルが避けようとしている失敗
 

@@ -208,6 +208,8 @@ HTML実装前に `references/image-selection.md` を読み、storyboard の各�
 **`deck.md` の `## skills` に挙げたデザイン系を、ここで読む。飛ばさない。**
 複数あるなら全部読む — 配色の決め方と余白の決め方が別のスキルに分かれていることがある。
 1つも無かったなら、その旨を1行伝えたうえで `references/quality-contract.md` の数値で進める。
+**配色は外部スキルの有無にかかわらず `references/color-and-emphasis.md` も読む** —
+色数ではなく面積で決める / 主役の色は題材か素材から取る / 赤は否定の意味に予約する。
 読んだうえで、このデッキ固有の方向を決める。
 決めるのは4つだけ: **配色4〜6色 / 表示・本文・等幅の3書体 / 文字サイズ段階 / 記憶に残る装置1つ**。
 決めたら `theme.css` の TOKENS に書き、`deck.md` の `## design` にも残す。
@@ -481,6 +483,7 @@ PPTX が必須なら最初から `pptx` スキルで作る。
 | --- | --- | --- |
 | `references/quality-contract.md` | 文字サイズ・密度・余白・色の数値と**その根拠** | 実装前 |
 | `references/layout-playbook.md` | job からレイアウトを決める手がかり | 実装前 |
+| `references/color-and-emphasis.md` | 色の面積配分・意味づけ・強調の3手段・面と線 | **theme.css を決める前**・強調を入れるとき |
 | `references/whitespace-theory.md` | 余白の一所有者原則・構図フレーム・layout blockの閾値 | 実装前・実装中 |
 | `references/figures.md` | 図の方式選択・配置パターン・図中の数値契約 | **図や画像を入れる前** |
 | `references/image-selection.md` | 画像の要否・記事の図や文章の引用・自作との選択 | storyboard から実装へ進む前 |

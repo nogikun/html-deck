@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "example_only": true,
+  "view_scale": 0.63,
+  "target_glyph_height_view_px": 16,
+  "images": [
+    {
+      "id": "filter",
+      "path": "assets/images/filter.png",
+      "source_size_px": [1048, 694],
+      "focus_box_px": [190, 145, 395, 195],
+      "focus_source": "agent_observed",
+      "must_read": ["タイプ", "時間", "アップロード日"],
+      "measurement": {
+        "method": "ocr",
+        "glyph_p10_px": 10,
+        "unmeasured_labels": ["時間"],
+        "confidence": null
+      },
+      "placement": {
+        "display_px": [1003.3, 495.3],
+        "slide_area_ratio": 0.3451,
+        "predicted_glyph_height_view_px": 16.0,
+        "prediction_scope": "measured_glyphs_only",
+        "source_pixels_per_slide_pixel": 0.3937,
+        "status": "needs_review"
+      },
+      "verification": {
+        "ocr_label_matches": null,
+        "visual_review": "pending",
+        "reviewer": null,
+        "human_participant_test": false
+      }
+    }
+  ]
+}

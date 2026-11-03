@@ -189,6 +189,20 @@ storyboard は1行1枚で、`claim`(言い切りの見出し) と `job`(比較/�
 
 比較・表・大きな構図は、指定がなければ中央配置。固定幅のフレームには `margin-inline:auto` を使い、`left` や `transform` で後から見た目だけをずらさない。親の `gap` と隣接子の外側 `margin` で同じ間隔を二重に作らない。詳細な式・閾値・例外属性は `references/whitespace-theory.md` に従う。
 
+### 視覚表現と引用の必要性を決める
+
+HTML実装前に `references/image-selection.md` を読み、storyboard の各枚で
+**画像を使うと何が伝わりやすくなるか、既存記事の図や文章を引用する必要があるか**を判断する。
+引用元の図／自作の図／実画面／画像なしを選び、`visual` と選んだ理由を `deck.md` に残す。
+`claim / job / visual / evidence` を基準に実物か確認済みの説明で選び、採用根拠・出典・
+不採用理由を `deck.md` に残す。画像を確認できず意味が不明なら、図解やテキストへ戻る。
+専用の画像認識モデルやサーバーは追加しない。
+
+**画像内の文字・操作部品を読ませる枚、または「画像が小さい」と指摘された枚**では、
+`references/image-layout.md` に従う。`assets/image-layout.example.json` を元にデッキへ
+`image-layout.json` を作り、注目領域・測定方法・表示サイズ・実描画の確認結果を残す。
+占有率を固定せず、必要な文字・部品の見やすさから、全体表示／部分拡大／分割を選ぶ。
+
 ## 3. デザインを決めて theme.css に固定する
 
 **`deck.md` の `## skills` に挙げたデザイン系を、ここで読む。飛ばさない。**
@@ -303,6 +317,8 @@ prompt:
   そこの指示に完全に従うこと。
   - screenshot: <deck>/.loop/round-N/shots/03-evidence.png   ← 必ず Read で画像を見る
   - slide_contract: <deck.md の該当行をそのまま貼る>
+  - image_selection: <画像がある枚のみ、deck.md の選定記録と出典を貼る>
+  - image_layout: <部分拡大・画像内文字を扱う枚のみ、image-layout.json の該当画像の記録を貼る>
   - deck_goal: <合意したゴール>
   - metrics: <report.json の該当スライドの metrics>
   - accepted: <deck.md の ## accepted をそのまま貼る>
@@ -467,6 +483,9 @@ PPTX が必須なら最初から `pptx` スキルで作る。
 | `references/layout-playbook.md` | job からレイアウトを決める手がかり | 実装前 |
 | `references/whitespace-theory.md` | 余白の一所有者原則・構図フレーム・layout blockの閾値 | 実装前・実装中 |
 | `references/figures.md` | 図の方式選択・配置パターン・図中の数値契約 | **図や画像を入れる前** |
+| `references/image-selection.md` | 画像の要否・記事の図や文章の引用・自作との選択 | storyboard から実装へ進む前 |
+| `references/image-layout.md` | 画像内文字・注目領域から表示サイズを決め、実描画で確かめる | 操作画面・文字のある画像を使うとき、画像が小さいとき |
+| `assets/image-layout.example.json` | 画像配置メタデータの記入例 | デッキの `image-layout.json` を作るとき |
 | `vendor/draw-io/` | draw.io スキル本体 (MIT / little-hands、改変なし) | draw.io で図を作るとき |
 | `tools/src/html_deck/drawio_svg.py` | `.drawio` → 貼れるSVGへ変換 | 同上 |
 | `references/loop.md` | ループ制御・終了条件・評価ハック禁止 | 批評を起動する前 |

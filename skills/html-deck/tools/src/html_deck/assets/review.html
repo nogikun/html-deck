@@ -384,8 +384,8 @@
    レビュー機能が http でしか動かないのは、file:// だと親から iframe の
    contentDocument に到達できないため。ファイルを分けるのではなく、
    到達できない環境では起動方法の案内に置き換える。 */
-const SERVED = location.protocol === "http:" || location.protocol === "https:";
 const BUNDLED = false;   // bundle_deck.py が true にして、下の配列に本文を入れる
+const SERVED = !BUNDLED && (location.protocol === "http:" || location.protocol === "https:");
 
 // このブロックは check_deck.py が slides/*.html の <title> から自動再生成する。
 // 手で書き換えても次回の検査で上書きされる。順序はファイル名順。

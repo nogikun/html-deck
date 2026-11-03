@@ -28,3 +28,6 @@ work
 
 # スキルの評価ワークスペース (材料と生成物)
 html-deck-workspace/
+
+# pptxgenjs が npm の既定でリポジトリ直下に展開した分。本来は .html-deck-runtime/
+node_modules/

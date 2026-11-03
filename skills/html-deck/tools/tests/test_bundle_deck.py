@@ -14,6 +14,9 @@ from __future__ import annotations
 
 import base64
 import io
+import json
+import re
+import subprocess
 import sys
 import tempfile
 from contextlib import redirect_stderr, redirect_stdout
@@ -84,6 +87,21 @@ def main() -> int:
     assert "data:image/png;base64," in html, "デッキ内の画像が畳まれていない"
     assert 'src="../fig.png"' not in html, "デッキ内の画像が参照のまま残っている"
     assert "url(../fig.png)" not in html, "CSS の url() が畳まれていない"
+
+    # 配布HTMLはHTTPでもレビューAPIを呼ばず、埋め込んだスライドを使う。
+    viewer = (bundle_deck.ASSETS / "review.html").read_text(encoding="utf-8")
+    for content, bundled in ((viewer, False), (html, True)):
+        declarations = "\n".join(re.findall(r"^const (?:BUNDLED|SERVED) =.*?;", content, re.M))
+        subprocess.run(["node", "--input-type=module"], input=f'''
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+for (const protocol of ['file:', 'http:', 'https:']) {{
+  const [bundled, served] = vm.runInNewContext(
+    {json.dumps(declarations)} + '; [BUNDLED, SERVED]', {{ location: {{ protocol }} }});
+  assert.equal(bundled, {json.dumps(bundled)});
+  assert.equal(served, !bundled && protocol !== 'file:');
+}}
+''', text=True, check=True)
 
     # --- 畳めなかった読み込み参照は警告に出し、「外部参照なし」と言い切らない
     assert "https://example.com/remote.png" in warn, warn

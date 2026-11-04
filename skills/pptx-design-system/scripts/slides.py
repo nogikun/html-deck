@@ -151,13 +151,13 @@ def build(prs):
     # --- 6 書体 ------------------------------------------------------------
     sl = s()
     chrome(sl, "書体", next(n) + 1)
-    lead(sl, "見出しは記名性、本文は可読性。役割を分けて 2 書体に留める。")
+    lead(sl, "見出しは記名性、本文は可読性。1 つの家族をウェイトで分ける。")
     for i, (role, fam, note_, sample) in enumerate([
         ("見出し (major)", TOKENS["font_major"],
-         "丸ゴシック。4 本すべての資料に共通して出てくる書体で、この資料の記名性そのもの。",
+         "Noto Sans JP の Medium。ボールドは掛けず、太さはウェイトだけで出す。",
          "読ませる前に、伝える"),
         ("本文 (minor)", TOKENS["font_minor_ea"],
-         "Microsoft 同梱の UD 書体。投影時につぶれず、Windows なら相手の環境にも必ずある。",
+         "見出しと同じ Noto Sans JP の標準ウェイト。Mac・Windows・Linux で同じ字形になる。",
          "本文はここに書く。1 枚 100 字が中央値、250 字で 2 枚に割る。"),
     ]):
         y = 2.5 + i * 1.95
@@ -165,7 +165,7 @@ def build(prs):
         text(sl, MARGIN + 0.32, y, 3.4, 0.4, role, size="small", bold=True,
              color=TOKENS["accent1"] if i == 0 else GREY_SUB,
              font=TOKENS["font_major"], line_spacing=1.1)
-        text(sl, MARGIN + 0.32, y + 0.38, 4.2, 0.5, fam, size=22, bold=True,
+        text(sl, MARGIN + 0.32, y + 0.38, 4.2, 0.5, fam, size=22,
              color=TOKENS["dk2"], font=fam, line_spacing=1.1)
         text(sl, MARGIN + 0.32, y + 0.95, 4.6, 0.6, note_, size=13, color=GREY_SUB,
              line_spacing=1.4)
@@ -174,8 +174,7 @@ def build(prs):
              line_spacing=1.4)
     text(sl, MARGIN, 6.35, BODY_W, 0.5,
          [[("配布先に書体がないとき", {"bold": True, "color": TOKENS["dk2"]}),
-           ("　［ファイル］▸［オプション］▸［保存］▸［ファイルにフォントを埋め込む］で "
-            "見出し書体ごと配れる。埋め込めないときは見出しも BIZ UDPGothic に落とす。", {})]],
+           ("　Noto Sans JP (無料) を入れてもらう。無理ならフォントを埋め込むか、游ゴシックに落とす。", {})]],
          size=13, color=TOKENS["dk1"], line_spacing=1.5)
 
     # --- 7 文字サイズ -------------------------------------------------------

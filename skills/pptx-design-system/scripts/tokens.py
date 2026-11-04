@@ -28,8 +28,8 @@ TOKENS = {
     "hlink": "0070C0",
     "folHlink": "747474",
     # 書体
-    "font_major": "Rounded Mplus 1c Bold",  # 見出し
-    "font_minor_ea": "BIZ UDPGothic",  # 本文 (和文)
+    "font_major": "Noto Sans JP Medium",  # 見出し。太さはウェイトで持ち、ボールドは掛けない
+    "font_minor_ea": "Noto Sans JP",  # 本文 (和文)。見出しと同じ家族で、Mac・Windows・Linux すべてで使える
     "font_minor_latin": "Arial",  # 本文 (欧文)
 }
 

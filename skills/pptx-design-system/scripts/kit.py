@@ -63,9 +63,11 @@ def text(slide, x, y, w, h, runs, size="body", color=None, bold=False, align=PP_
             f = r.font
             sz = opt.get("size", base_size)
             f.size = Pt(SZ[sz] if isinstance(sz, str) else sz)
-            f.bold = opt.get("bold", bold)
+            name = opt.get("font", base_font)
+            # 見出し書体は Medium のウェイトで太さを持つ。ボールドを重ねない
+            f.bold = False if name == TOKENS["font_major"] else opt.get("bold", bold)
             f.color.rgb = rgb(opt.get("color", base_color))
-            f.name = opt.get("font", base_font)
+            f.name = name
             _set_ea(r, opt.get("font", base_font), opt.get("latin"))
     return tb
 

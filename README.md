@@ -12,6 +12,10 @@
 npx skills add nogikun/html-deck
 ```
 
+このリポジトリは 2 つの Skills を持ちます。`html-deck` が HTML スライドを作り、
+`pptx-design-system` が PowerPoint の標準スタイル (配色・書体・文字サイズ・余白の指針) を
+1 つの `.pptx` として作ります。
+
 ## できること
 
 - 1600 × 900 の固定キャンバスで、各スライドを独立した HTML として作成
@@ -47,6 +51,7 @@ npx skills add nogikun/html-deck
 | `skills/html-deck/references/`               | レイアウト、図、反復改善のガイド                      |
 | `skills/html-deck/agents/`                   | スライド単位・デッキ全体の批評用指示                  |
 | `skills/html-deck/tools/src/html_deck/assets/review.html`        | 唯一のビューア。`index.html` としても配置される       |
+| `skills/pptx-design-system/`                 | PowerPoint の標準スタイルを作る Skill 一式            |
 | `docs/design/`                               | 設計ドキュメント                                      |
 | `docs/`                                      | このスキルで作成したデッキの例                        |
 
